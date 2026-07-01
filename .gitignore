@@ -1,0 +1,17 @@
+.DS_Store
+node_modules
+.next
+out
+dist
+build
+.env
+.env*.local
+data/scheduled-posts.json
+data/activity-log.json
+data/campaign-memory.json
+data/x-accounts.json
+data/x-posts.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
