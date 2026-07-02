@@ -245,12 +245,14 @@ export default function Home() {
         (await googleResponse.json()) as GoogleAnalyticsStatus;
 
       setGoogleStatus(nextGoogleStatus);
-      setSelectedAnalyticsProperty(
-        (current) =>
-          current ||
-          nextGoogleStatus.properties?.[0]?.propertyId ||
-          ""
-      );
+      setSelectedAnalyticsProperty((current) => {
+        const properties = nextGoogleStatus.properties || [];
+        const currentStillReadable = properties.some(
+          (property) => property.propertyId === current
+        );
+
+        return currentStillReadable ? current : properties[0]?.propertyId || "";
+      });
       setXStatus((await xResponse.json()) as XConnectionStatus);
     } catch {
       setIntegrationError("Could not read connection status.");

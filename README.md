@@ -92,11 +92,16 @@ Google OAuth callback:
 http://localhost:3000/api/google/callback
 ```
 
-For Google, create an OAuth client and enable read-only Analytics access. Relix requests:
+For Google, create an OAuth client and enable both APIs in the same Google Cloud project as that OAuth client:
+
+- Google Analytics Admin API
+- Google Analytics Data API
 
 ```text
 https://www.googleapis.com/auth/analytics.readonly
 ```
+
+OAuth can succeed even when the Data API is disabled. If Relix says Analytics is connected but cannot return metrics, confirm that the Google Analytics Data API is enabled for the OAuth project and that the connected Google account has Viewer access to the GA4 property.
 
 X Developer Portal callback:
 

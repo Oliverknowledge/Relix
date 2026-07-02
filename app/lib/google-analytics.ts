@@ -75,16 +75,52 @@ type AccountSummariesResponse = {
       property?: string;
     }>;
   }>;
-  error?: { message?: string };
+  error?: GoogleApiErrorBody;
 };
 
 type RunReportResponse = {
-  error?: { message?: string };
+  error?: GoogleApiErrorBody;
   rows?: Array<{
     dimensionValues?: Array<{ value?: string }>;
     metricValues?: Array<{ value?: string }>;
   }>;
 };
+
+type GoogleApiErrorBody = {
+  code?: number;
+  details?: Array<Record<string, unknown>>;
+  errors?: Array<{
+    domain?: string;
+    message?: string;
+    reason?: string;
+  }>;
+  message?: string;
+  status?: string;
+};
+
+class GoogleApiError extends Error {
+  code?: string;
+  reason?: string;
+  status?: number;
+
+  constructor({
+    code,
+    message,
+    reason,
+    status
+  }: {
+    code?: string;
+    message: string;
+    reason?: string;
+    status?: number;
+  }) {
+    super(message);
+    this.name = "GoogleApiError";
+    this.code = code;
+    this.reason = reason;
+    this.status = status;
+  }
+}
 
 export function googleAnalyticsConfiguration() {
   const missing = [
@@ -255,17 +291,17 @@ export async function listGoogleAnalyticsProperties(accessToken: string) {
       Authorization: `Bearer ${accessToken}`
     }
   });
-  const data = (await response.json()) as AccountSummariesResponse;
+  const data = await googleJson<AccountSummariesResponse>(response);
 
   if (!response.ok) {
-    throw new Error(data.error?.message || "Could not read Analytics properties.");
+    throwGoogleApiError(response, data.error, "Could not read Analytics properties.");
   }
 
   return (data.accountSummaries || []).flatMap((account) =>
     (account.propertySummaries || [])
       .map((property) => {
         const propertyName = property.property || "";
-        const propertyId = propertyName.replace("properties/", "");
+        const propertyId = normaliseGooglePropertyId(propertyName);
 
         return {
           accountName: account.displayName || account.account || "Analytics account",
@@ -275,6 +311,10 @@ export async function listGoogleAnalyticsProperties(accessToken: string) {
       })
       .filter((property) => property.propertyId)
   );
+}
+
+export function normaliseGooglePropertyId(propertyId?: string | null) {
+  return (propertyId || "").trim().replace(/^properties\//, "");
 }
 
 export async function fetchGoogleAnalyticsMetrics({
@@ -291,11 +331,14 @@ export async function fetchGoogleAnalyticsMetrics({
     metrics: [
       { name: "activeUsers" },
       { name: "sessions" },
-      { name: "screenPageViews" },
-      { name: "engagementRate" }
+      { name: "screenPageViews" }
     ]
   });
-  const [keyEvents, sources, pages] = await Promise.all([
+  const [engagement, keyEvents, sources, pages] = await Promise.all([
+    safeRunReport(accessToken, propertyId, {
+      dateRanges: [{ endDate: "today", startDate: "28daysAgo" }],
+      metrics: [{ name: "engagementRate" }]
+    }),
     safeRunReport(accessToken, propertyId, {
       dateRanges: [{ endDate: "today", startDate: "28daysAgo" }],
       metrics: [{ name: "keyEvents" }]
@@ -319,7 +362,9 @@ export async function fetchGoogleAnalyticsMetrics({
   const users = numberValue(overviewValues[0]?.value);
   const sessions = numberValue(overviewValues[1]?.value);
   const pageviews = numberValue(overviewValues[2]?.value);
-  const engagementRate = numberValue(overviewValues[3]?.value);
+  const engagementRate = numberValue(
+    engagement.report?.rows?.[0]?.metricValues?.[0]?.value
+  );
   const conversions = numberValue(
     keyEvents.report?.rows?.[0]?.metricValues?.[0]?.value
   );
@@ -331,7 +376,9 @@ export async function fetchGoogleAnalyticsMetrics({
     path: row.dimensionValues?.[0]?.value || "/",
     views: numberValue(row.metricValues?.[0]?.value)
   }));
-  const partial = Boolean(keyEvents.error || sources.error || pages.error);
+  const partial = Boolean(
+    engagement.error || keyEvents.error || sources.error || pages.error
+  );
 
   return {
     connected: true,
@@ -377,45 +424,70 @@ export function analyticsUnavailable(error: string): GoogleAnalyticsMetrics {
 }
 
 export function analyticsFriendlyError(error: unknown) {
-  const message =
-    typeof error === "string"
-      ? error
-      : error instanceof Error
-        ? error.message
-        : "";
+  const detail = googleErrorDetail(error);
+  const message = detail.message;
+  const haystack = [
+    detail.code,
+    detail.reason,
+    detail.status,
+    detail.message
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
-  if (/invalid_grant|revoked|expired|refresh|reauthori[sz]e/i.test(message)) {
+  if (
+    /service_disabled|accessnotconfigured|api_not_activated|has not been used|disabled|enable it|enable the api/i.test(
+      haystack
+    )
+  ) {
+    return "Google Analytics is connected, but the Google Analytics Data API is not enabled for this OAuth project.";
+  }
+
+  if (
+    /invalid_grant|revoked|expired|refresh|reauthori[sz]e|unauthenticated|invalid authentication credentials|access token|401/i.test(
+      haystack
+    )
+  ) {
     return "Analytics access expired. Reconnect Google Analytics.";
   }
 
-  if (/permission|forbidden|insufficient|access|403/i.test(message)) {
+  if (
+    /permission|forbidden|insufficient|sufficient permissions|access_denied|403/i.test(
+      haystack
+    )
+  ) {
     return "Analytics is connected, but this Google account cannot read that property.";
   }
 
-  if (/quota|rate limit|429/i.test(message)) {
+  if (/quota|rate limit|resource_exhausted|429/i.test(haystack)) {
     return "Analytics is rate limited. Try again shortly.";
   }
 
-  if (/property|properties|not found|404/i.test(message)) {
+  if (/property id.*invalid|invalid.*property|bad request|400/i.test(haystack)) {
+    return "Analytics returned an invalid property response. Refresh Analytics and choose a listed GA4 property.";
+  }
+
+  if (/property|properties|not found|404/i.test(haystack)) {
     return "Analytics is connected, but no readable property was found.";
   }
 
-  if (/metric|dimension|compatib/i.test(message)) {
+  if (/metric|dimension|compatib|invalid argument/i.test(haystack)) {
     return "Analytics is connected, but this property does not support one of the requested reports.";
   }
 
-  return "Analytics is connected, but Google would not return data for this property.";
+  return `Google Analytics returned: ${cleanGoogleMessage(message)}`;
 }
 
 export function analyticsRequiresReconnect(error: unknown) {
-  const message =
-    typeof error === "string"
-      ? error
-      : error instanceof Error
-        ? error.message
-        : "";
+  const detail = googleErrorDetail(error);
+  const haystack = [detail.code, detail.reason, detail.status, detail.message]
+    .filter(Boolean)
+    .join(" ");
 
-  return /invalid_grant|revoked|expired|refresh|reauthori[sz]e/i.test(message);
+  return /invalid_grant|revoked|expired|refresh|reauthori[sz]e|unauthenticated|invalid authentication credentials|access token|401/i.test(
+    haystack
+  );
 }
 
 export function encryptedGoogleAnalyticsAccount(account: GoogleAnalyticsAccount) {
@@ -443,6 +515,27 @@ async function requestGoogleToken(body: URLSearchParams) {
   return token;
 }
 
+async function googleJson<T>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return {} as T;
+  }
+}
+
+function throwGoogleApiError(
+  response: Response,
+  error: GoogleApiErrorBody | undefined,
+  fallback: string
+): never {
+  throw new GoogleApiError({
+    code: error?.status,
+    message: error?.message || fallback,
+    reason: error?.errors?.map((entry) => entry.reason).filter(Boolean).join(", "),
+    status: response.status
+  });
+}
+
 async function runReport(
   accessToken: string,
   propertyId: string,
@@ -460,13 +553,46 @@ async function runReport(
       method: "POST"
     }
   );
-  const data = (await response.json()) as RunReportResponse;
+  const data = await googleJson<RunReportResponse>(response);
 
   if (!response.ok) {
-    throw new Error(data.error?.message || "Could not read Analytics metrics.");
+    throwGoogleApiError(response, data.error, "Could not read Analytics metrics.");
   }
 
   return data;
+}
+
+function googleErrorDetail(error: unknown) {
+  if (error instanceof GoogleApiError) {
+    return {
+      code: error.code,
+      message: error.message,
+      reason: error.reason,
+      status: error.status
+    };
+  }
+
+  return {
+    code: undefined,
+    message:
+      typeof error === "string"
+        ? error
+        : error instanceof Error
+          ? error.message
+          : "Analytics could not be read.",
+    reason: undefined,
+    status: undefined
+  };
+}
+
+function cleanGoogleMessage(message: string) {
+  return (
+    message
+      .replace(/https?:\/\/\S+/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 180) || "Analytics could not be read."
+  );
 }
 
 async function safeRunReport(

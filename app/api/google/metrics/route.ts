@@ -7,6 +7,7 @@ import {
   getValidGoogleAnalyticsAccess,
   googleAnalyticsConfiguration,
   listGoogleAnalyticsProperties,
+  normaliseGooglePropertyId,
   setGoogleAnalyticsAccountCookie
 } from "@/app/lib/google-analytics";
 
@@ -26,8 +27,10 @@ export async function GET(request: NextRequest) {
   try {
     const { accessToken, account: currentAccount } =
       await getValidGoogleAnalyticsAccess(account);
-    const requestedProperty = request.nextUrl.searchParams.get("propertyId");
-    let propertyId = requestedProperty || "";
+    const requestedProperty = normaliseGooglePropertyId(
+      request.nextUrl.searchParams.get("propertyId")
+    );
+    let propertyId = requestedProperty;
     let propertyName: string | undefined;
 
     try {
@@ -36,7 +39,7 @@ export async function GET(request: NextRequest) {
         properties.find((candidate) => candidate.propertyId === requestedProperty) ||
         properties[0];
 
-      propertyId = propertyId || property?.propertyId || "";
+      propertyId = property?.propertyId || propertyId;
       propertyName = property?.displayName;
     } catch (error) {
       if (!propertyId) {
