@@ -16,6 +16,9 @@ import {
   Transaction
 } from "@solana/web3.js";
 import {
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -83,6 +86,23 @@ type WorkLogEntry = {
   createdAt: string;
   id: string;
   status: "active" | "done";
+  text: string;
+};
+
+type FlowStage =
+  | "setup"
+  | "working"
+  | "opportunity"
+  | "specialist"
+  | "delivery"
+  | "payment"
+  | "complete";
+
+type DeliveryAssetBlock = {
+  id: string;
+  kind: "tweet" | "note" | "reply" | "follow-up";
+  label: string;
+  section: string;
   text: string;
 };
 
@@ -166,6 +186,7 @@ export default function Home() {
   const [growthWork, setGrowthWork] = useState<GrowthEmployeeWork | null>(null);
   const [xStatus, setXStatus] = useState<XConnectionStatus>(emptyXStatus);
   const [workLog, setWorkLog] = useState<WorkLogEntry[]>([]);
+  const [activeStage, setActiveStage] = useState<FlowStage>("setup");
   const [isRunning, setIsRunning] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
@@ -187,6 +208,7 @@ export default function Home() {
   const [isSavingDrafts, setIsSavingDrafts] = useState(false);
   const [publishingPostId, setPublishingPostId] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const flowRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -313,6 +335,23 @@ export default function Home() {
   }, [campaign?.id, loadXPosts, xPosts, xStatus.connected]);
 
   useEffect(() => {
+    if (activeStage === "setup") {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      scrollToElement(
+        activeStage === "working" ? flowRef.current : resultsRef.current,
+        "smooth"
+      );
+    }, 80);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeStage]);
+
+  useEffect(() => {
     if (!publicKey) {
       return;
     }
@@ -420,6 +459,7 @@ export default function Home() {
   const releasePayment = async () => {
     if (!publicKey || !connected) {
       setReleaseError("Connect a devnet wallet to release payment.");
+      setActiveStage("payment");
       return;
     }
 
@@ -489,6 +529,9 @@ export default function Home() {
       }
 
       setIsExecutingWork(false);
+      window.setTimeout(() => {
+        setActiveStage("complete");
+      }, 900);
     } catch (error) {
       setReleaseStatus("idle");
       setReleaseError(
@@ -511,18 +554,8 @@ export default function Home() {
       return;
     }
 
-    const missingXScopes = missingXWriteScopes(xStatus);
-
-    if (!xStatus.connected || missingXScopes.length > 0) {
-      setIntegrationError(
-        xStatus.connected && missingXScopes.length > 0
-          ? `Reconnect X after enabling ${missingXScopes.join(
-              ", "
-            )} in the X Developer Portal.`
-          : xStatus.configured
-          ? "Connect X before hiring the employee."
-          : "X OAuth is not configured yet. Add the X client credentials and token encryption key."
-      );
+    if (!connected) {
+      setIntegrationError("Connect Phantom before hiring the employee.");
       return;
     }
 
@@ -542,6 +575,8 @@ export default function Home() {
     setXDrafts({});
     setXPosts([]);
     setScheduleMessage(null);
+    setEditingAssetId(null);
+    setActiveStage("working");
     setIsRunning(true);
 
     window.setTimeout(() => {
@@ -654,12 +689,7 @@ export default function Home() {
       await addLog("Approved", "done");
 
       setHasRun(true);
-      window.setTimeout(() => {
-        scrollToElement(resultsRef.current, "smooth");
-      }, 120);
-      window.setTimeout(() => {
-        scrollToElement(resultsRef.current, "auto");
-      }, 900);
+      setActiveStage("opportunity");
     } catch (error) {
       setIntegrationError(
         error instanceof Error
@@ -675,6 +705,7 @@ export default function Home() {
           text: "GitHub needs attention"
         }
       ]);
+      setActiveStage("setup");
     } finally {
       setIsRunning(false);
     }
@@ -822,14 +853,86 @@ export default function Home() {
     }
   };
 
+  const scheduleSingleXPost = async ({
+    label,
+    sourceId,
+    text
+  }: {
+    label: string;
+    sourceId: string;
+    text: string;
+  }) => {
+    if (!campaignAssets || isScheduling) {
+      return;
+    }
+
+    const scheduledAt = new Date(scheduleTime);
+
+    if (Number.isNaN(scheduledAt.getTime())) {
+      setScheduleMessage("Choose a valid schedule time.");
+      return;
+    }
+
+    if (!validXPost(text)) {
+      setScheduleMessage("Each X post must be between 1 and 280 characters.");
+      return;
+    }
+
+    setIsScheduling(true);
+    setScheduleMessage(null);
+
+    try {
+      const response = await fetch("/api/x/schedule", {
+        body: JSON.stringify({
+          campaignId: campaign.id,
+          posts: [
+            {
+              label,
+              scheduledFor: scheduledAt.toISOString(),
+              sourceId,
+              text
+            }
+          ],
+          repository: campaignAssets.repository,
+          status: "scheduled"
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST"
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        posts?: ScheduledXPost[];
+      };
+
+      if (!response.ok || !data.posts) {
+        throw new Error(data.error || "Could not schedule X post.");
+      }
+
+      setXPosts((posts) =>
+        data.posts?.reduce(upsertClientXPost, posts) || posts
+      );
+      setScheduleMessage(`${label} scheduled.`);
+    } catch (error) {
+      setScheduleMessage(
+        error instanceof Error ? error.message : "Could not schedule X post."
+      );
+    } finally {
+      setIsScheduling(false);
+    }
+  };
+
   const publishXPostNow = async ({
     label,
     postId,
-    sourceId
+    sourceId,
+    text: providedText
   }: {
     label?: string;
     postId?: string;
     sourceId?: string;
+    text?: string;
   }) => {
     if (!campaignAssets || publishingPostId) {
       return;
@@ -841,7 +944,7 @@ export default function Home() {
     const text: string =
       postId && !sourceId
         ? ""
-        : draftText || "";
+        : providedText || draftText || "";
 
     if (!postId && !validXPost(text)) {
       setScheduleMessage("Each X post must be between 1 and 280 characters.");
@@ -990,7 +1093,7 @@ export default function Home() {
 
   return (
     <main>
-      {isClient ? (
+      {isClient && activeStage !== "setup" ? (
         <WalletStrip
           balanceSol={balanceSol}
           connected={connected}
@@ -1005,182 +1108,761 @@ export default function Home() {
         />
       ) : null}
 
-      <section className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-5 py-16 sm:px-8">
-        <div className="max-w-3xl">
-          <p className="text-sm font-medium text-[#71717a]">Relix</p>
-          <h1 className="mt-5 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
-            Hire your first AI Growth Employee.
-          </h1>
-          <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
-            Connect GitHub. Give Relix one goal. It reads what shipped, hires a
-            specialist, settles payment, and publishes approved X posts.
-          </p>
-        </div>
+      {activeStage === "setup" ? (
+        <SetupSection
+          balanceSol={balanceSol}
+          connected={connected}
+          connecting={connecting || pendingWalletName !== null}
+          disconnectWallet={disconnect}
+          form={form}
+          githubStatus={githubStatus}
+          integrationError={integrationError}
+          isAirdropping={isAirdropping}
+          isRunning={isRunning}
+          loading={statusLoading}
+          publicKey={publicKey?.toBase58() || null}
+          refreshRepositories={loadRepositories}
+          refreshToolStatuses={refreshToolStatuses}
+          repositories={repositories}
+          reposLoading={reposLoading}
+          requestDevnetSol={requestDevnetSol}
+          selectWallet={connectWallet}
+          selectedRepo={selectedRepo}
+          setForm={setForm}
+          setSelectedRepo={setSelectedRepo}
+          submit={hireEmployee}
+          wallets={wallets}
+          xDisconnect={disconnectX}
+          xStatus={xStatus}
+        />
+      ) : null}
 
-        <form
-          className="mt-12 grid max-w-2xl gap-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void hireEmployee();
-          }}
-        >
-          <GitHubConnection
-            githubStatus={githubStatus}
-            loading={statusLoading}
-            repositories={repositories}
-            reposLoading={reposLoading}
-            refresh={refreshToolStatuses}
-            refreshRepositories={loadRepositories}
-            selectedRepo={selectedRepo}
-            setSelectedRepo={setSelectedRepo}
-          />
+      <div ref={flowRef} />
 
+      {activeStage === "working" ? (
+        <section className="mx-auto max-w-5xl px-5 pb-24 sm:px-8">
+          <WorkLog entries={workLog} />
+        </section>
+      ) : null}
+
+      {hasRun &&
+      githubContext &&
+      campaignAssets &&
+      repositoryAnalysis &&
+      growthWork &&
+      activeStage !== "working" ? (
+        <GuidedResultFlow
+          activeStage={activeStage}
+          assets={campaignAssets}
+          campaign={campaign}
+          connected={connected}
+          copiedAssetId={copiedAssetId}
+          editingAssetId={editingAssetId}
+          error={releaseError}
+          isExecutingWork={isExecutingWork}
+          isSavingDrafts={isSavingDrafts}
+          isScheduling={isScheduling}
+          memory={campaignMemory}
+          onCancelPost={cancelScheduledXPost}
+          onCopyAsset={copyAsset}
+          onEditAsset={setEditingAssetId}
+          onPublishNow={publishXPostNow}
+          onRelease={releasePayment}
+          onRetryPost={(postId) => publishXPostNow({ postId })}
+          onSaveDrafts={saveXPostDrafts}
+          onScheduleAll={scheduleXLaunchPosts}
+          onScheduleOne={scheduleSingleXPost}
+          payment={payment}
+          publishingPostId={publishingPostId}
+          releaseStatus={releaseStatus}
+          repositoryAnalysis={repositoryAnalysis}
+          repositoryContext={githubContext}
+          resultsRef={resultsRef}
+          scheduleMessage={scheduleMessage}
+          scheduleTime={scheduleTime}
+          setActiveStage={setActiveStage}
+          setScheduleTime={setScheduleTime}
+          setXDraftText={(sourceId, text) =>
+            setXDrafts((drafts) => ({ ...drafts, [sourceId]: text }))
+          }
+          visibleActionCount={executedActionCount}
+          work={growthWork}
+          xDrafts={xDrafts}
+          xPosts={xPosts}
+          xStatus={xStatus}
+        />
+      ) : null}
+    </main>
+  );
+}
+
+function SetupSection({
+  balanceSol,
+  connected,
+  connecting,
+  disconnectWallet,
+  form,
+  githubStatus,
+  integrationError,
+  isAirdropping,
+  isRunning,
+  loading,
+  publicKey,
+  refreshRepositories,
+  refreshToolStatuses,
+  repositories,
+  reposLoading,
+  requestDevnetSol,
+  selectWallet,
+  selectedRepo,
+  setForm,
+  setSelectedRepo,
+  submit,
+  wallets,
+  xDisconnect,
+  xStatus
+}: {
+  balanceSol: number | null;
+  connected: boolean;
+  connecting: boolean;
+  disconnectWallet: () => Promise<void>;
+  form: FounderRequest;
+  githubStatus: GitHubStatus;
+  integrationError: string | null;
+  isAirdropping: boolean;
+  isRunning: boolean;
+  loading: boolean;
+  publicKey: string | null;
+  refreshRepositories: () => Promise<void>;
+  refreshToolStatuses: () => Promise<void>;
+  repositories: GitHubRepositorySummary[];
+  reposLoading: boolean;
+  requestDevnetSol: () => Promise<void>;
+  selectWallet: (walletName: WalletName) => void;
+  selectedRepo: string;
+  setForm: Dispatch<SetStateAction<FounderRequest>>;
+  setSelectedRepo: (value: string) => void;
+  submit: () => Promise<void>;
+  wallets: Wallet[];
+  xDisconnect: () => Promise<void>;
+  xStatus: XConnectionStatus;
+}) {
+  return (
+    <section className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-5 py-16 sm:px-8">
+      <div className="max-w-3xl">
+        <p className="text-sm font-medium text-[#71717a]">Relix</p>
+        <h1 className="mt-5 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
+          Hire your first AI Growth Employee.
+        </h1>
+        <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
+          Connect GitHub and Phantom. Give Relix one goal. It reads what
+          shipped, hires a specialist, settles payment, and prepares approved X
+          posts.
+        </p>
+      </div>
+
+      <form
+        className="mt-12 grid max-w-2xl gap-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <SetupWalletConnection
+          balanceSol={balanceSol}
+          connected={connected}
+          connecting={connecting}
+          disconnect={disconnectWallet}
+          isAirdropping={isAirdropping}
+          publicKey={publicKey}
+          requestDevnetSol={requestDevnetSol}
+          selectWallet={selectWallet}
+          wallets={wallets}
+        />
+
+        <GitHubConnection
+          githubStatus={githubStatus}
+          loading={loading}
+          repositories={repositories}
+          reposLoading={reposLoading}
+          refresh={refreshToolStatuses}
+          refreshRepositories={refreshRepositories}
+          selectedRepo={selectedRepo}
+          setSelectedRepo={setSelectedRepo}
+        />
+
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-medium text-[#18181b]">X</p>
+            <span className="text-xs text-[#71717a]">Optional</span>
+          </div>
           <XConnection
-            disconnect={disconnectX}
-            loading={statusLoading}
+            disconnect={xDisconnect}
+            loading={loading}
             refresh={refreshToolStatuses}
             xStatus={xStatus}
           />
+        </div>
+
+        <label className="grid gap-2">
+          <span className="text-sm font-medium text-[#18181b]">Goal</span>
+          <input
+            className="field h-14 px-4 text-base"
+            value={form.goal}
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                goal: event.target.value
+              }))
+            }
+          />
+        </label>
+
+        <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
+          <label className="grid gap-2">
+            <span className="text-sm font-medium text-[#18181b]">Budget</span>
+            <div className="relative">
+              <input
+                className="field h-14 px-4 pr-14 text-base"
+                min={0}
+                step={0.1}
+                type="number"
+                value={form.budgetSol}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    budgetSol: Number(event.target.value)
+                  }))
+                }
+              />
+              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#71717a]">
+                SOL
+              </span>
+            </div>
+          </label>
 
           <label className="grid gap-2">
-            <span className="text-sm font-medium text-[#18181b]">Goal</span>
+            <span className="text-sm font-medium text-[#18181b]">Deadline</span>
             <input
               className="field h-14 px-4 text-base"
-              value={form.goal}
+              type="date"
+              value={form.deadline}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  goal: event.target.value
+                  deadline: event.target.value
                 }))
               }
             />
           </label>
+        </div>
 
-          <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
-            <label className="grid gap-2">
-              <span className="text-sm font-medium text-[#18181b]">
-                Budget
-              </span>
-              <div className="relative">
-                <input
-                  className="field h-14 px-4 pr-14 text-base"
-                  min={0}
-                  step={0.1}
-                  type="number"
-                  value={form.budgetSol}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      budgetSol: Number(event.target.value)
-                    }))
-                  }
-                />
-                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#71717a]">
-                  SOL
-                </span>
-              </div>
-            </label>
+        <button
+          className="mt-2 h-14 w-full rounded-full bg-[#0a0a0a] px-6 text-base font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
+          disabled={isRunning}
+          type="submit"
+        >
+          {isRunning ? "Hiring..." : "Hire Growth Employee"}
+        </button>
 
-            <label className="grid gap-2">
-              <span className="text-sm font-medium text-[#18181b]">
-                Deadline
-              </span>
-              <input
-                className="field h-14 px-4 text-base"
-                type="date"
-                value={form.deadline}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    deadline: event.target.value
-                  }))
-                }
-              />
-            </label>
+        {integrationError ? (
+          <p className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#52525b] shadow-sm">
+            {integrationError}
+          </p>
+        ) : null}
+      </form>
+    </section>
+  );
+}
+
+function SetupWalletConnection({
+  balanceSol,
+  connected,
+  connecting,
+  disconnect,
+  isAirdropping,
+  publicKey,
+  requestDevnetSol,
+  selectWallet,
+  wallets
+}: {
+  balanceSol: number | null;
+  connected: boolean;
+  connecting: boolean;
+  disconnect: () => Promise<void>;
+  isAirdropping: boolean;
+  publicKey: string | null;
+  requestDevnetSol: () => Promise<void>;
+  selectWallet: (walletName: WalletName) => void;
+  wallets: Wallet[];
+}) {
+  const phantomWallet = wallets.find(
+    ({ adapter }) => String(adapter.name) === "Phantom"
+  );
+  const phantomReadyState = phantomWallet?.adapter.readyState;
+  const canConnectPhantom =
+    phantomReadyState === WalletReadyState.Installed ||
+    phantomReadyState === WalletReadyState.Loadable;
+  const balanceIsLow =
+    connected && balanceSol !== null && balanceSol < LOW_BALANCE_SOL;
+
+  return (
+    <div className="grid gap-2">
+      <p className="text-sm font-medium text-[#18181b]">Phantom</p>
+      {connected && publicKey ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="rounded-full border border-[#0a0a0a] bg-[#0a0a0a] px-4 py-3 text-sm font-medium text-white">
+            Phantom {shortAddress(publicKey)}
           </div>
-
+          <span className="text-xs text-[#71717a]">
+            {balanceSol === null ? "Reading balance" : `${formatBalance(balanceSol)} SOL`}
+          </span>
           <button
-            className="mt-2 h-14 w-full rounded-full bg-[#0a0a0a] px-6 text-base font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
-            disabled={isRunning}
-            type="submit"
+            className="text-xs text-[#71717a] transition hover:text-[#0a0a0a]"
+            onClick={() => void disconnect()}
+            type="button"
           >
-            {isRunning ? "Hiring..." : "Hire Employee"}
+            Disconnect
           </button>
-
-          {integrationError ? (
-            <p className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#52525b] shadow-sm">
-              {integrationError}
-            </p>
+          {balanceIsLow ? (
+            <button
+              className="rounded-full bg-[#0a0a0a] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+              disabled={isAirdropping}
+              onClick={() => void requestDevnetSol()}
+              type="button"
+            >
+              {isAirdropping ? "Requesting..." : "Get devnet SOL"}
+            </button>
           ) : null}
-        </form>
-      </section>
-
-      <div ref={flowRef} />
-
-      {(workLog.length > 0 || hasRun) && (
-        <section className="mx-auto max-w-5xl px-5 pb-24 sm:px-8">
-          <WorkLog entries={workLog} />
-
-          {hasRun &&
-          githubContext &&
-          campaignAssets &&
-          repositoryAnalysis &&
-          growthWork ? (
-            <div className="enter mt-24 grid gap-24" ref={resultsRef}>
-              <BidsSection assets={campaignAssets} campaign={campaign} />
-              <WinnerSection
-                assets={campaignAssets}
-                campaign={campaign}
-                memory={campaignMemory}
-              />
-              <GitHubAnalysisSection
-                analysis={repositoryAnalysis}
-                context={githubContext}
-              />
-              <SpecialistDeliverySection
-                assets={campaignAssets}
-                campaign={campaign}
-                copiedAssetId={copiedAssetId}
-                isSavingDrafts={isSavingDrafts}
-                isScheduling={isScheduling}
-                onCopyAsset={copyAsset}
-                onCancelPost={cancelScheduledXPost}
-                onPublishNow={publishXPostNow}
-                onRetryPost={(postId) => publishXPostNow({ postId })}
-                onSaveDrafts={saveXPostDrafts}
-                onSchedule={scheduleXLaunchPosts}
-                publishingPostId={publishingPostId}
-                scheduleMessage={scheduleMessage}
-                scheduleTime={scheduleTime}
-                setScheduleTime={setScheduleTime}
-                setXDraftText={(sourceId, text) =>
-                  setXDrafts((drafts) => ({ ...drafts, [sourceId]: text }))
-                }
-                xDrafts={xDrafts}
-                xPosts={xPosts}
-                xStatus={xStatus}
-              />
-              <EscrowSection
-                connected={connected}
-                error={releaseError}
-                onRelease={releasePayment}
-                payment={payment}
-                releaseStatus={releaseStatus}
-                winningBid={campaign.winningBid}
-              />
-              {payment ? (
-                <EmployeeWorkSection
-                  assets={campaignAssets}
-                  isExecuting={isExecutingWork}
-                  visibleCount={executedActionCount}
-                  work={growthWork}
-                />
-              ) : null}
-            </div>
-          ) : null}
-        </section>
+        </div>
+      ) : phantomWallet && canConnectPhantom ? (
+        <button
+          className="w-fit rounded-full border hairline bg-white px-4 py-3 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a] disabled:opacity-50"
+          disabled={connecting}
+          onClick={() => selectWallet(phantomWallet.adapter.name)}
+          type="button"
+        >
+          {connecting ? "Connecting Phantom..." : "Connect Phantom"}
+        </button>
+      ) : (
+        <a
+          className="w-fit rounded-full border hairline bg-white px-4 py-3 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a]"
+          href={PHANTOM_DOWNLOAD_URL}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Get Phantom
+        </a>
       )}
-    </main>
+    </div>
+  );
+}
+
+function GuidedResultFlow({
+  activeStage,
+  assets,
+  campaign,
+  connected,
+  copiedAssetId,
+  editingAssetId,
+  error,
+  isExecutingWork,
+  isSavingDrafts,
+  isScheduling,
+  memory,
+  onCancelPost,
+  onCopyAsset,
+  onEditAsset,
+  onPublishNow,
+  onRelease,
+  onRetryPost,
+  onSaveDrafts,
+  onScheduleAll,
+  onScheduleOne,
+  payment,
+  publishingPostId,
+  releaseStatus,
+  repositoryAnalysis,
+  repositoryContext,
+  resultsRef,
+  scheduleMessage,
+  scheduleTime,
+  setActiveStage,
+  setScheduleTime,
+  setXDraftText,
+  visibleActionCount,
+  work,
+  xDrafts,
+  xPosts,
+  xStatus
+}: {
+  activeStage: FlowStage;
+  assets: GrowthCampaignAssets;
+  campaign: CampaignPlan;
+  connected: boolean;
+  copiedAssetId: string | null;
+  editingAssetId: string | null;
+  error: string | null;
+  isExecutingWork: boolean;
+  isSavingDrafts: boolean;
+  isScheduling: boolean;
+  memory: CampaignMemoryRecord[];
+  onCancelPost: (postId: string) => Promise<void>;
+  onCopyAsset: (id: string, text: string) => Promise<void>;
+  onEditAsset: (id: string | null) => void;
+  onPublishNow: (input: {
+    label?: string;
+    postId?: string;
+    sourceId?: string;
+    text?: string;
+  }) => Promise<void>;
+  onRelease: () => Promise<void>;
+  onRetryPost: (postId: string) => Promise<void>;
+  onSaveDrafts: () => Promise<void>;
+  onScheduleAll: () => Promise<void>;
+  onScheduleOne: (input: {
+    label: string;
+    sourceId: string;
+    text: string;
+  }) => Promise<void>;
+  payment: PaymentResult | null;
+  publishingPostId: string | null;
+  releaseStatus: ReleaseStatus;
+  repositoryAnalysis: RepositoryAnalysis;
+  repositoryContext: GitHubRepositoryContext;
+  resultsRef: RefObject<HTMLDivElement | null>;
+  scheduleMessage: string | null;
+  scheduleTime: string;
+  setActiveStage: (stage: FlowStage) => void;
+  setScheduleTime: (value: string) => void;
+  setXDraftText: (sourceId: string, text: string) => void;
+  visibleActionCount: number;
+  work: GrowthEmployeeWork;
+  xDrafts: Record<string, string>;
+  xPosts: ScheduledXPost[];
+  xStatus: XConnectionStatus;
+}) {
+  const position = flowStagePosition(activeStage);
+
+  return (
+    <section className="mx-auto max-w-5xl px-5 py-16 sm:px-8" ref={resultsRef}>
+      <div className="mb-10 grid gap-3">
+        <CollapsedStep
+          detail={`${campaign.request.goal} · ${formatSol(
+            campaign.request.budgetSol
+          )} · ${repositoryContext.fullName}`}
+          title="Setup complete"
+        />
+        <CollapsedStep
+          detail={`${repositoryContext.commits.length} commits analysed · 4 specialists responded`}
+          title="Employee finished the first pass"
+        />
+        {position > 0 ? (
+          <CollapsedStep
+            detail={assets.opportunityLabel}
+            onOpen={() => setActiveStage("opportunity")}
+            title="Launch opportunity found"
+          />
+        ) : null}
+        {position > 1 ? (
+          <CollapsedStep
+            detail={`${specialistDisplayName(
+              campaign.winningBid
+            )} · ${formatSol(campaign.winningBid.priceSol)} · ${
+              campaign.winningBid.timeline
+            }`}
+            onOpen={() => setActiveStage("specialist")}
+            title="Specialist selected"
+          />
+        ) : null}
+        {position > 2 ? (
+          <CollapsedStep
+            detail="Launch thread, launch note, replies, and follow-up are ready"
+            onOpen={() => setActiveStage("delivery")}
+            title="Campaign assets delivered"
+          />
+        ) : null}
+        {position > 3 && payment ? (
+          <CollapsedStep
+            detail={`${formatSol(payment.settlementSol)} released · confirmed`}
+            onOpen={() => setActiveStage("payment")}
+            title="Payment settled"
+          />
+        ) : null}
+      </div>
+
+      <div className="enter">
+        {activeStage === "opportunity" ? (
+          <LaunchOpportunitySection
+            assets={assets}
+            campaign={campaign}
+            context={repositoryContext}
+            repositoryAnalysis={repositoryAnalysis}
+            setActiveStage={setActiveStage}
+          />
+        ) : null}
+
+        {activeStage === "specialist" ? (
+          <SpecialistSelectionSection
+            assets={assets}
+            campaign={campaign}
+            memory={memory}
+            setActiveStage={setActiveStage}
+          />
+        ) : null}
+
+        {activeStage === "delivery" ? (
+          <SpecialistDeliverySection
+            assets={assets}
+            campaign={campaign}
+            copiedAssetId={copiedAssetId}
+            editingAssetId={editingAssetId}
+            isSavingDrafts={isSavingDrafts}
+            isScheduling={isScheduling}
+            onCancelPost={onCancelPost}
+            onCopyAsset={onCopyAsset}
+            onEditAsset={onEditAsset}
+            onPublishNow={onPublishNow}
+            onRetryPost={onRetryPost}
+            onSaveDrafts={onSaveDrafts}
+            onSchedule={onScheduleAll}
+            onScheduleOne={onScheduleOne}
+            publishingPostId={publishingPostId}
+            scheduleMessage={scheduleMessage}
+            scheduleTime={scheduleTime}
+            setActiveStage={setActiveStage}
+            setScheduleTime={setScheduleTime}
+            setXDraftText={setXDraftText}
+            xDrafts={xDrafts}
+            xPosts={xPosts}
+            xStatus={xStatus}
+          />
+        ) : null}
+
+        {activeStage === "payment" ? (
+          <EscrowSection
+            connected={connected}
+            error={error}
+            onRelease={onRelease}
+            payment={payment}
+            releaseStatus={releaseStatus}
+            winningBid={campaign.winningBid}
+          />
+        ) : null}
+
+        {activeStage === "complete" ? (
+          <EmployeeWorkSection
+            assets={assets}
+            isExecuting={isExecutingWork}
+            visibleCount={visibleActionCount}
+            work={work}
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function CollapsedStep({
+  detail,
+  onOpen,
+  title
+}: {
+  detail: string;
+  onOpen?: () => void;
+  title: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-[#f4f4f5] px-4 py-3 text-sm">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#0a0a0a] text-[10px] text-white">
+          ✓
+        </span>
+        <div className="min-w-0">
+          <p className="font-medium text-[#18181b]">{title}</p>
+          <p className="truncate text-[#71717a]">{detail}</p>
+        </div>
+      </div>
+      {onOpen ? (
+        <button
+          className="rounded-full bg-white px-3 py-1.5 text-xs font-medium text-[#52525b] transition hover:text-[#0a0a0a]"
+          onClick={onOpen}
+          type="button"
+        >
+          Review
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function LaunchOpportunitySection({
+  assets,
+  campaign,
+  context,
+  repositoryAnalysis,
+  setActiveStage
+}: {
+  assets: GrowthCampaignAssets;
+  campaign: CampaignPlan;
+  context: GitHubRepositoryContext;
+  repositoryAnalysis: RepositoryAnalysis;
+  setActiveStage: (stage: FlowStage) => void;
+}) {
+  const commits = context.commits.slice(0, 3);
+
+  return (
+    <section className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center">
+      <div className="rounded-[2rem] border hairline bg-white p-7 soft-shadow sm:p-10">
+        <p className="text-sm font-medium text-[#71717a]">Launch opportunity</p>
+        <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-6xl">
+          I found something worth launching.
+        </h2>
+        <p className="mt-6 text-lg leading-8 text-[#52525b]">
+          I noticed {assets.productArea}. This is a good opportunity to launch
+          because your current goal is {campaign.request.goal.toLowerCase()}
+        </p>
+        <p className="mt-5 text-base leading-7 text-[#27272a]">
+          {assets.opportunity}
+        </p>
+
+        <div className="mt-8">
+          <p className="text-sm font-medium text-[#18181b]">Recent commits</p>
+          <div className="mt-3 grid gap-3">
+            {commits.length > 0 ? (
+              commits.map((commit) => (
+                <a
+                  className="group rounded-2xl bg-[#f4f4f5] px-4 py-3"
+                  href={commit.url}
+                  key={commit.sha}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span className="block text-sm font-medium leading-6 text-[#27272a] group-hover:text-[#2563eb]">
+                    {commit.message}
+                  </span>
+                  <span className="text-xs text-[#71717a]">
+                    {formatDate(commit.date)}
+                  </span>
+                </a>
+              ))
+            ) : (
+              <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm text-[#71717a]">
+                No recent commits were available from GitHub.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {repositoryAnalysis.keyProductImprovements.length > 0 ? (
+          <p className="mt-5 text-sm leading-6 text-[#71717a]">
+            Key read: {repositoryAnalysis.keyProductImprovements[0]}.
+          </p>
+        ) : null}
+
+        <button
+          className="mt-8 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a]"
+          onClick={() => setActiveStage("specialist")}
+          type="button"
+        >
+          See who the employee hired
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function SpecialistSelectionSection({
+  assets,
+  campaign,
+  memory,
+  setActiveStage
+}: {
+  assets: GrowthCampaignAssets;
+  campaign: CampaignPlan;
+  memory: CampaignMemoryRecord[];
+  setActiveStage: (stage: FlowStage) => void;
+}) {
+  const previousCampaign = memory[0];
+
+  return (
+    <section className="mx-auto max-w-3xl">
+      <SectionHeading
+        kicker="Specialist marketplace"
+        title="The employee compared four specialists."
+      />
+
+      <div className="mt-8 grid gap-3">
+        {campaign.bids.map((bid) => {
+          const selected = bid.id === campaign.winningBid.id;
+
+          return (
+            <article
+              className={`rounded-3xl p-5 transition ${
+                selected
+                  ? "bg-[#0a0a0a] text-white"
+                  : "bg-[#f4f4f5] text-[#0a0a0a]"
+              }`}
+              key={bid.id}
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold tracking-[-0.02em]">
+                    {specialistDisplayName(bid)}
+                  </h3>
+                  <p
+                    className={`mt-2 max-w-xl text-sm leading-6 ${
+                      selected ? "text-[#d4d4d8]" : "text-[#52525b]"
+                    }`}
+                  >
+                    {bid.action}
+                  </p>
+                </div>
+                <div
+                  className={`flex shrink-0 gap-2 text-xs ${
+                    selected ? "text-[#e4e4e7]" : "text-[#71717a]"
+                  }`}
+                >
+                  <span>{formatSol(bid.priceSol)}</span>
+                  <span>·</span>
+                  <span>{bid.timeline}</span>
+                </div>
+              </div>
+
+              {selected ? (
+                <div className="mt-5 grid gap-3 border-t border-white/15 pt-5 text-sm leading-6 text-[#e4e4e7]">
+                  <p>{bidRepositoryReason(bid, assets)}</p>
+                  <p>{bid.differentiation}</p>
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
+        <p className="text-sm font-medium text-[#71717a]">
+          Why this specialist?
+        </p>
+        <p className="mt-4 text-xl leading-8 tracking-[-0.02em] text-[#27272a]">
+          I selected {specialistDisplayName(campaign.winningBid)} because your
+          latest repository work points to {assets.productArea}, and your goal
+          requires urgency.
+        </p>
+        <p className="mt-4 text-sm leading-6 text-[#71717a]">
+          {previousCampaign
+            ? `Memory: last time this repo used ${previousCampaign.specialist_used}. Outcome: ${previousCampaign.campaign_outcome}.`
+            : "Memory: no previous Relix campaign for this repository."}
+        </p>
+        <button
+          className="mt-7 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a]"
+          onClick={() => setActiveStage("delivery")}
+          type="button"
+        >
+          Review the delivery
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -1520,267 +2202,25 @@ function WorkLog({ entries }: { entries: WorkLogEntry[] }) {
   );
 }
 
-function InsightList({ items, title }: { items: string[]; title: string }) {
-  if (items.length === 0) {
-    return null;
-  }
-
-  return (
-    <div>
-      <p className="text-sm font-medium text-[#18181b]">{title}</p>
-      <div className="mt-3 grid gap-2">
-        {items.map((item) => (
-          <p
-            className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#27272a]"
-            key={item}
-          >
-            {item}
-          </p>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function GitHubAnalysisSection({
-  analysis,
-  context
-}: {
-  analysis: RepositoryAnalysis;
-  context: GitHubRepositoryContext;
-}) {
-  const latestRelease = context.releases[0];
-  const commits = context.commits.slice(0, 4);
-  const languages = context.languages.slice(0, 4);
-
-  return (
-    <section>
-      <SectionHeading kicker="GitHub read" title="The employee found the work." />
-      <div className="mt-8 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
-        <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
-          <div>
-            <a
-              className="text-2xl font-semibold tracking-[-0.03em] transition hover:text-[#2563eb]"
-              href={context.url}
-              rel="noreferrer"
-              target="_blank"
-            >
-              {context.fullName}
-            </a>
-            <p className="mt-4 text-base leading-7 text-[#52525b]">
-              {analysis.repositorySummary}
-            </p>
-            <p className="mt-6 text-lg leading-8 text-[#27272a]">
-              {context.recentSummary}
-            </p>
-            <p className="mt-5 text-sm text-[#71717a]">
-              Last pushed {formatDate(context.pushedAt)}.
-            </p>
-            {analysis.techStack.length > 0 ? (
-              <div className="mt-6 flex flex-wrap gap-2">
-                {analysis.techStack.map((item) => (
-                  <span
-                    className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b]"
-                    key={item}
-                  >
-                    {item}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-            {languages.length > 0 ? (
-              <div className="mt-6 grid gap-2">
-                <p className="text-sm font-medium text-[#18181b]">
-                  Languages
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {languages.map((language) => (
-                    <span
-                      className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs text-[#52525b]"
-                      key={language.name}
-                    >
-                      {language.name} {Math.round(language.share * 100)}%
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-6">
-            <InsightList
-              items={analysis.recentProductChanges}
-              title="Recent product changes"
-            />
-            <InsightList
-              items={analysis.launchOpportunities}
-              title="Launch opportunities"
-            />
-            <InsightList
-              items={analysis.keyProductImprovements}
-              title="Key improvements"
-            />
-            {latestRelease ? (
-              <div>
-                <p className="text-sm font-medium text-[#18181b]">
-                  Release history
-                </p>
-                <a
-                  className="mt-2 block text-base font-medium transition hover:text-[#2563eb]"
-                  href={latestRelease.url}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  {latestRelease.name}
-                </a>
-                <p className="mt-2 line-clamp-3 text-sm leading-6 text-[#71717a]">
-                  {latestRelease.body || "Release notes were empty."}
-                </p>
-              </div>
-            ) : null}
-
-            <div>
-              <p className="text-sm font-medium text-[#18181b]">
-                Repository timeline
-              </p>
-              <div className="mt-3 grid gap-3">
-                {commits.length > 0 ? (
-                  commits.map((commit) => (
-                    <a
-                      className="group grid gap-1 rounded-2xl bg-[#f4f4f5] px-4 py-3"
-                      href={commit.url}
-                      key={commit.sha}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      <span className="text-sm font-medium leading-6 text-[#27272a] group-hover:text-[#2563eb]">
-                        {commit.message}
-                      </span>
-                      <span className="text-xs text-[#71717a]">
-                        {formatDate(commit.date)}
-                      </span>
-                    </a>
-                  ))
-                ) : (
-                  <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm text-[#71717a]">
-                    No recent commits were available from GitHub.
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function BidsSection({
-  assets,
-  campaign
-}: {
-  assets: GrowthCampaignAssets;
-  campaign: CampaignPlan;
-}) {
-  return (
-    <section>
-      <SectionHeading
-        kicker="Bids received"
-        title="Specialists competed for the job."
-      />
-      <div className="mt-8 grid gap-4 md:grid-cols-2">
-        {campaign.bids.map((bid) => (
-          <BidCard assets={assets} bid={bid} key={bid.id} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function BidCard({
-  assets,
-  bid
-}: {
-  assets: GrowthCampaignAssets;
-  bid: Bid;
-}) {
-  return (
-    <article className="rounded-3xl border hairline bg-white p-6 soft-shadow">
-      <h3 className="text-xl font-semibold tracking-[-0.02em]">
-        {specialistDisplayName(bid)}
-      </h3>
-      <p className="mt-2 text-sm leading-6 text-[#52525b]">{bid.action}</p>
-
-      <dl className="mt-6 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <dt className="text-[#71717a]">Price</dt>
-          <dd className="mt-1 font-medium">{formatSol(bid.priceSol)}</dd>
-        </div>
-        <div>
-          <dt className="text-[#71717a]">Delivery</dt>
-          <dd className="mt-1 font-medium">{bid.timeline}</dd>
-        </div>
-      </dl>
-
-      <p className="mt-6 border-t hairline pt-5 text-sm leading-6 text-[#3f3f46]">
-        {bidRepositoryReason(bid, assets)}
-      </p>
-      <p className="mt-3 text-sm leading-6 text-[#71717a]">
-        {bid.differentiation}
-      </p>
-    </article>
-  );
-}
-
-function WinnerSection({
-  assets,
-  campaign,
-  memory
-}: {
-  assets: GrowthCampaignAssets;
-  campaign: CampaignPlan;
-  memory: CampaignMemoryRecord[];
-}) {
-  const previousCampaign = memory[0];
-
-  return (
-    <section className="mx-auto max-w-2xl text-center">
-      <p className="text-sm font-medium text-[#71717a]">Winner selected</p>
-      <h2 className="mt-4 text-4xl font-semibold tracking-[-0.04em] sm:text-6xl">
-        {specialistDisplayName(campaign.winningBid)} selected.
-      </h2>
-      <p className="mt-6 text-lg leading-8 text-[#52525b]">
-        I selected {specialistDisplayName(campaign.winningBid)} because{" "}
-        {assets.repository} shows {assets.productArea}. Launch events work best
-        when there is something new for players to experience.
-      </p>
-      <p className="mx-auto mt-6 max-w-xl text-sm leading-6 text-[#71717a]">
-        {assets.opportunity}
-      </p>
-      <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-[#71717a]">
-        {previousCampaign
-          ? `Memory: last time this repo used ${previousCampaign.specialist_used}. Outcome: ${previousCampaign.campaign_outcome}.`
-          : "Memory: no previous Relix campaign for this repository."}
-      </p>
-    </section>
-  );
-}
-
 function SpecialistDeliverySection({
   assets,
   campaign,
   copiedAssetId,
+  editingAssetId,
   isSavingDrafts,
   isScheduling,
   onCancelPost,
   onCopyAsset,
+  onEditAsset,
   onPublishNow,
   onRetryPost,
   onSaveDrafts,
   onSchedule,
+  onScheduleOne,
   publishingPostId,
   scheduleMessage,
   scheduleTime,
+  setActiveStage,
   setScheduleTime,
   setXDraftText,
   xDrafts,
@@ -1790,70 +2230,416 @@ function SpecialistDeliverySection({
   assets: GrowthCampaignAssets;
   campaign: CampaignPlan;
   copiedAssetId: string | null;
+  editingAssetId: string | null;
   isSavingDrafts: boolean;
   isScheduling: boolean;
   onCancelPost: (postId: string) => Promise<void>;
   onCopyAsset: (id: string, text: string) => Promise<void>;
+  onEditAsset: (id: string | null) => void;
   onPublishNow: (input: {
     label?: string;
     postId?: string;
     sourceId?: string;
+    text?: string;
   }) => Promise<void>;
   onRetryPost: (postId: string) => Promise<void>;
   onSaveDrafts: () => Promise<void>;
   onSchedule: () => Promise<void>;
+  onScheduleOne: (input: {
+    label: string;
+    sourceId: string;
+    text: string;
+  }) => Promise<void>;
   publishingPostId: string | null;
   scheduleMessage: string | null;
   scheduleTime: string;
+  setActiveStage: (stage: FlowStage) => void;
   setScheduleTime: (value: string) => void;
   setXDraftText: (sourceId: string, text: string) => void;
   xDrafts: Record<string, string>;
   xPosts: ScheduledXPost[];
   xStatus: XConnectionStatus;
 }) {
+  const blocks = deliveryAssetBlocks(assets);
+  const connectedLabel = xStatus.account
+    ? `Connected as @${xStatus.account.username}`
+    : "Connect X to schedule or publish.";
+
   return (
-    <section>
+    <section className="mx-auto max-w-4xl">
       <SectionHeading
         kicker="Specialist delivery"
         title={`${specialistDisplayName(
           campaign.winningBid
-        )} returned the launch campaign.`}
+        )} delivered the launch assets.`}
       />
-      <div className="mt-8 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
-        <p className="max-w-2xl text-lg leading-8 text-[#27272a]">
-          {assets.specialistReport}
-        </p>
-        <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
-          Source: {assets.repository}. {assets.sourceSummary}
-        </p>
-        <EvidenceList evidence={assets.evidence} />
-        <AssetQueue
-          assets={assets}
+
+      <div className="mt-8 grid gap-8">
+        <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
+          <p className="max-w-2xl text-lg leading-8 text-[#27272a]">
+            {assets.specialistReport}
+          </p>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
+            Source: {assets.repository}. {assets.sourceSummary}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-[#18181b]">Publishing</p>
+            <p className="mt-1 text-sm leading-6 text-[#71717a]">
+              {connectedLabel}. Nothing posts without approval.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              className="field h-11 w-full px-4 text-sm sm:w-56"
+              onChange={(event) => setScheduleTime(event.target.value)}
+              type="datetime-local"
+              value={scheduleTime}
+            />
+            <button
+              className="rounded-full border hairline bg-white px-4 py-2.5 text-sm font-medium text-[#27272a] transition hover:border-[#0a0a0a] disabled:opacity-50"
+              disabled={!xStatus.connected || isSavingDrafts}
+              onClick={() => void onSaveDrafts()}
+              type="button"
+            >
+              {isSavingDrafts ? "Saving..." : "Save drafts"}
+            </button>
+            <button
+              className="rounded-full bg-[#0a0a0a] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+              disabled={!xStatus.connected || isScheduling}
+              onClick={() => void onSchedule()}
+              type="button"
+            >
+              {isScheduling ? "Scheduling..." : "Schedule thread"}
+            </button>
+          </div>
+        </div>
+
+        <AssetGroup
+          blocks={blocks.filter((block) => block.section === "Launch Thread")}
           copiedAssetId={copiedAssetId}
-          onCopyAsset={onCopyAsset}
-        />
-        <SchedulePanel
-          copiedAssetId={copiedAssetId}
-          isSavingDrafts={isSavingDrafts}
+          editingAssetId={editingAssetId}
           isScheduling={isScheduling}
+          onCopyAsset={onCopyAsset}
+          onEditAsset={onEditAsset}
+          onPublishNow={onPublishNow}
+          onScheduleOne={onScheduleOne}
+          publishingPostId={publishingPostId}
+          setXDraftText={setXDraftText}
+          title="Launch Thread"
+          xDrafts={xDrafts}
+          xStatus={xStatus}
+        />
+
+        <AssetGroup
+          blocks={blocks.filter((block) => block.section === "Launch Note")}
+          copiedAssetId={copiedAssetId}
+          editingAssetId={editingAssetId}
+          isScheduling={isScheduling}
+          onCopyAsset={onCopyAsset}
+          onEditAsset={onEditAsset}
+          onPublishNow={onPublishNow}
+          onScheduleOne={onScheduleOne}
+          publishingPostId={publishingPostId}
+          setXDraftText={setXDraftText}
+          title="Launch Note"
+          xDrafts={xDrafts}
+          xStatus={xStatus}
+        />
+
+        <AssetGroup
+          blocks={blocks.filter((block) => block.section === "Founder Replies")}
+          copiedAssetId={copiedAssetId}
+          editingAssetId={editingAssetId}
+          isScheduling={isScheduling}
+          onCopyAsset={onCopyAsset}
+          onEditAsset={onEditAsset}
+          onPublishNow={onPublishNow}
+          onScheduleOne={onScheduleOne}
+          publishingPostId={publishingPostId}
+          setXDraftText={setXDraftText}
+          title="Founder Replies"
+          xDrafts={xDrafts}
+          xStatus={xStatus}
+        />
+
+        <AssetGroup
+          blocks={blocks.filter((block) => block.section === "Follow-up Campaign")}
+          copiedAssetId={copiedAssetId}
+          editingAssetId={editingAssetId}
+          isScheduling={isScheduling}
+          onCopyAsset={onCopyAsset}
+          onEditAsset={onEditAsset}
+          onPublishNow={onPublishNow}
+          onScheduleOne={onScheduleOne}
+          publishingPostId={publishingPostId}
+          setXDraftText={setXDraftText}
+          title="Follow-up Campaign"
+          xDrafts={xDrafts}
+          xStatus={xStatus}
+        />
+
+        {scheduleMessage ? (
+          <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
+            {scheduleMessage}
+          </p>
+        ) : null}
+
+        <PostHistory
+          copiedAssetId={copiedAssetId}
           onCancelPost={onCancelPost}
           onCopyAsset={onCopyAsset}
-          onPublishNow={onPublishNow}
           onRetryPost={onRetryPost}
-          onSaveDrafts={onSaveDrafts}
-          onSchedule={onSchedule}
           publishingPostId={publishingPostId}
-          scheduleMessage={scheduleMessage}
-          scheduleTime={scheduleTime}
-          setScheduleTime={setScheduleTime}
-          setXDraftText={setXDraftText}
-          xDrafts={xDrafts}
           xPosts={xPosts}
-          xStatus={xStatus}
-          assets={assets}
         />
+
+        <button
+          className="w-fit rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a]"
+          onClick={() => setActiveStage("payment")}
+          type="button"
+        >
+          Continue to payment
+        </button>
       </div>
     </section>
+  );
+}
+
+function AssetGroup({
+  blocks,
+  copiedAssetId,
+  editingAssetId,
+  isScheduling,
+  onCopyAsset,
+  onEditAsset,
+  onPublishNow,
+  onScheduleOne,
+  publishingPostId,
+  setXDraftText,
+  title,
+  xDrafts,
+  xStatus
+}: {
+  blocks: DeliveryAssetBlock[];
+  copiedAssetId: string | null;
+  editingAssetId: string | null;
+  isScheduling: boolean;
+  onCopyAsset: (id: string, text: string) => Promise<void>;
+  onEditAsset: (id: string | null) => void;
+  onPublishNow: (input: {
+    label?: string;
+    sourceId?: string;
+    text?: string;
+  }) => Promise<void>;
+  onScheduleOne: (input: {
+    label: string;
+    sourceId: string;
+    text: string;
+  }) => Promise<void>;
+  publishingPostId: string | null;
+  setXDraftText: (sourceId: string, text: string) => void;
+  title: string;
+  xDrafts: Record<string, string>;
+  xStatus: XConnectionStatus;
+}) {
+  if (blocks.length === 0) {
+    return null;
+  }
+
+  return (
+    <div>
+      <h3 className="text-2xl font-semibold tracking-[-0.03em]">{title}</h3>
+      <div className="mt-4 grid gap-3">
+        {blocks.map((block) => {
+          const text = xDrafts[block.id] ?? block.text;
+
+          return (
+            <DeliveryAssetCard
+              block={block}
+              copied={copiedAssetId === block.id}
+              editing={editingAssetId === block.id}
+              isScheduling={isScheduling}
+              key={block.id}
+              onChange={(nextText) => setXDraftText(block.id, nextText)}
+              onCopyAsset={onCopyAsset}
+              onEditAsset={onEditAsset}
+              onPublishNow={onPublishNow}
+              onScheduleOne={onScheduleOne}
+              publishing={publishingPostId === block.id}
+              text={text}
+              xConnected={xStatus.connected}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DeliveryAssetCard({
+  block,
+  copied,
+  editing,
+  isScheduling,
+  onChange,
+  onCopyAsset,
+  onEditAsset,
+  onPublishNow,
+  onScheduleOne,
+  publishing,
+  text,
+  xConnected
+}: {
+  block: DeliveryAssetBlock;
+  copied: boolean;
+  editing: boolean;
+  isScheduling: boolean;
+  onChange: (text: string) => void;
+  onCopyAsset: (id: string, text: string) => Promise<void>;
+  onEditAsset: (id: string | null) => void;
+  onPublishNow: (input: {
+    label?: string;
+    sourceId?: string;
+    text?: string;
+  }) => Promise<void>;
+  onScheduleOne: (input: {
+    label: string;
+    sourceId: string;
+    text: string;
+  }) => Promise<void>;
+  publishing: boolean;
+  text: string;
+  xConnected: boolean;
+}) {
+  const remaining = 280 - text.length;
+  const canSendToX = validXPost(text);
+  const isTweet = block.kind === "tweet";
+
+  return (
+    <article
+      className={`rounded-3xl p-5 ${
+        isTweet ? "bg-[#f4f4f5]" : "border hairline bg-white"
+      }`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-[#18181b]">{block.label}</p>
+          <p className="mt-1 text-xs text-[#71717a]">{block.section}</p>
+        </div>
+        <span
+          className={`text-xs ${
+            remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
+          }`}
+        >
+          {remaining}
+        </span>
+      </div>
+
+      {editing ? (
+        <textarea
+          className="field mt-4 min-h-28 resize-y px-4 py-3 text-sm leading-6"
+          onChange={(event) => onChange(event.target.value)}
+          value={text}
+        />
+      ) : (
+        <div
+          className={`mt-4 whitespace-pre-wrap rounded-2xl ${
+            isTweet ? "bg-white" : "bg-[#f4f4f5]"
+          } px-4 py-4 text-sm leading-7 text-[#27272a]`}
+        >
+          {text}
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+          onClick={() => void onCopyAsset(block.id, text)}
+          type="button"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+          onClick={() => onEditAsset(editing ? null : block.id)}
+          type="button"
+        >
+          {editing ? "Done" : "Edit"}
+        </button>
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
+          disabled={!xConnected || !canSendToX || isScheduling}
+          onClick={() =>
+            void onScheduleOne({
+              label: block.label,
+              sourceId: block.id,
+              text
+            })
+          }
+          type="button"
+        >
+          {isScheduling ? "Scheduling..." : "Schedule"}
+        </button>
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
+          disabled={!xConnected || !canSendToX || publishing}
+          onClick={() =>
+            void onPublishNow({
+              label: block.label,
+              sourceId: block.id,
+              text
+            })
+          }
+          type="button"
+        >
+          {publishing ? "Publishing..." : "Publish"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function PostHistory({
+  copiedAssetId,
+  onCancelPost,
+  onCopyAsset,
+  onRetryPost,
+  publishingPostId,
+  xPosts
+}: {
+  copiedAssetId: string | null;
+  onCancelPost: (postId: string) => Promise<void>;
+  onCopyAsset: (id: string, text: string) => Promise<void>;
+  onRetryPost: (postId: string) => Promise<void>;
+  publishingPostId: string | null;
+  xPosts: ScheduledXPost[];
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium text-[#18181b]">Post history</p>
+      <div className="mt-3 grid gap-3">
+        {xPosts.length > 0 ? (
+          xPosts.map((post) => (
+            <ScheduledXPostRow
+              copied={copiedAssetId === post.sourceId}
+              key={post.id}
+              onCancelPost={onCancelPost}
+              onCopyAsset={onCopyAsset}
+              onRetryPost={onRetryPost}
+              post={post}
+              publishing={publishingPostId === post.id}
+            />
+          ))
+        ) : (
+          <p className="rounded-3xl bg-[#f4f4f5] p-5 text-sm leading-6 text-[#71717a]">
+            No X posts saved yet.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1911,10 +2697,11 @@ function EscrowSection({
 
   return (
     <section className="mx-auto max-w-xl">
-      <SectionHeading kicker="Settlement" title="Approve the handoff." />
+      <SectionHeading kicker="Payment" title="Approve Employee Payment" />
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
-        <p className="mb-7 text-sm text-[#71717a]">
-          The specialist is paid only after delivery is reviewed.
+        <p className="mb-7 text-base leading-7 text-[#52525b]">
+          The specialist has completed the requested work. Payment will be
+          released after your approval.
         </p>
         <div className="space-y-0">
           {paymentRows.map((row, index) => {
@@ -2004,13 +2791,17 @@ function EmployeeWorkSection({
   const isComplete = visibleCount >= work.actions.length;
 
   return (
-    <section className="pb-12">
+    <section className="mx-auto max-w-2xl pb-12 text-center">
       <SectionHeading
         kicker="Employee summary"
-        title={isExecuting ? "Writing today's update." : "Today's work"}
+        title={
+          isExecuting
+            ? "Writing today's update."
+            : "Campaign successfully delivered."
+        }
       />
 
-      <div className="mt-8 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
+      <div className="mt-8 rounded-[2rem] border hairline bg-white p-6 text-left soft-shadow sm:p-8">
         <div className="grid gap-4">
           {visibleActions.map((action) => (
             <ActionRow action={action} key={action.id} />
@@ -2036,322 +2827,6 @@ function EmployeeWorkSection({
         )}
       </div>
     </section>
-  );
-}
-
-function EvidenceList({ evidence }: { evidence: GrowthCampaignAssets["evidence"] }) {
-  return (
-    <div className="mt-8 grid gap-3 sm:grid-cols-2">
-      {evidence.map((item) => (
-        <div
-          className="rounded-3xl bg-[#f4f4f5] p-4"
-          key={`${item.source}-${item.label}-${item.text}`}
-        >
-          <p className="text-xs font-medium text-[#71717a]">{item.label}</p>
-          <p className="mt-2 text-sm leading-6 text-[#27272a]">{item.text}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AssetQueue({
-  assets,
-  copiedAssetId,
-  onCopyAsset
-}: {
-  assets: GrowthCampaignAssets;
-  copiedAssetId: string | null;
-  onCopyAsset: (id: string, text: string) => Promise<void>;
-}) {
-  const copyBlocks = [
-    {
-      id: "launch-note",
-      label: "Launch note",
-      text: assets.launchNote
-    },
-    ...assets.launchThread.map((post, index) => ({
-      id: `thread-${index}`,
-      label: post.label,
-      text: post.text
-    })),
-    ...assets.founderReplies.map((reply, index) => ({
-      id: `reply-${index}`,
-      label: reply.prompt,
-      text: reply.text
-    })),
-    {
-      id: "follow-up-campaign",
-      label: "Follow-up campaign",
-      text: assets.followUpCampaign
-    }
-  ];
-
-  return (
-    <div className="mt-10 grid gap-8">
-      <div>
-        <h3 className="text-2xl font-semibold tracking-[-0.03em]">
-          Launch Thread
-        </h3>
-        <div className="mt-4 grid gap-3">
-          {copyBlocks.slice(1, 4).map((block) => (
-            <CopyBlock
-              block={block}
-              copied={copiedAssetId === block.id}
-              key={block.id}
-              onCopy={onCopyAsset}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-2xl font-semibold tracking-[-0.03em]">
-          Launch Note
-        </h3>
-        <div className="mt-4">
-          <CopyBlock
-            block={copyBlocks[0]}
-            copied={copiedAssetId === copyBlocks[0].id}
-            onCopy={onCopyAsset}
-          />
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-2xl font-semibold tracking-[-0.03em]">
-          Example Founder Replies
-        </h3>
-        <div className="mt-4 grid gap-3">
-          {copyBlocks.slice(4, 7).map((block) => (
-            <CopyBlock
-              block={block}
-              copied={copiedAssetId === block.id}
-              key={block.id}
-              onCopy={onCopyAsset}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-2xl font-semibold tracking-[-0.03em]">
-          Follow-up Campaign
-        </h3>
-        <div className="mt-4">
-          <CopyBlock
-            block={copyBlocks[7]}
-            copied={copiedAssetId === copyBlocks[7].id}
-            onCopy={onCopyAsset}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SchedulePanel({
-  assets,
-  copiedAssetId,
-  isSavingDrafts,
-  isScheduling,
-  onCancelPost,
-  onCopyAsset,
-  onPublishNow,
-  onRetryPost,
-  onSaveDrafts,
-  onSchedule,
-  publishingPostId,
-  scheduleMessage,
-  scheduleTime,
-  setScheduleTime,
-  setXDraftText,
-  xDrafts,
-  xPosts,
-  xStatus
-}: {
-  assets: GrowthCampaignAssets;
-  copiedAssetId: string | null;
-  isSavingDrafts: boolean;
-  isScheduling: boolean;
-  onCancelPost: (postId: string) => Promise<void>;
-  onCopyAsset: (id: string, text: string) => Promise<void>;
-  onPublishNow: (input: {
-    label?: string;
-    postId?: string;
-    sourceId?: string;
-  }) => Promise<void>;
-  onRetryPost: (postId: string) => Promise<void>;
-  onSaveDrafts: () => Promise<void>;
-  onSchedule: () => Promise<void>;
-  publishingPostId: string | null;
-  scheduleMessage: string | null;
-  scheduleTime: string;
-  setScheduleTime: (value: string) => void;
-  setXDraftText: (sourceId: string, text: string) => void;
-  xDrafts: Record<string, string>;
-  xPosts: ScheduledXPost[];
-  xStatus: XConnectionStatus;
-}) {
-  const draftBlocks = assets.launchThread.map((post, index) => {
-    const sourceId = `thread-${index}`;
-
-    return {
-      label: post.label,
-      sourceId,
-      text: xDrafts[sourceId] ?? post.text
-    };
-  });
-  const connectedLabel = xStatus.account
-    ? `Connected as @${xStatus.account.username}`
-    : "Connect X to publish.";
-
-  return (
-    <div className="mt-10 border-t hairline pt-8">
-      <div className="grid gap-8">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h3 className="text-2xl font-semibold tracking-[-0.03em]">
-              X publishing
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-[#71717a]">
-              {connectedLabel}. Nothing is posted without approval.
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-            <input
-              className="field h-11 px-4 text-sm"
-              onChange={(event) => setScheduleTime(event.target.value)}
-              type="datetime-local"
-              value={scheduleTime}
-            />
-            <button
-              className="rounded-full border hairline bg-white px-4 py-2.5 text-sm font-medium text-[#27272a] transition hover:border-[#0a0a0a] disabled:opacity-50"
-              disabled={!xStatus.connected || isSavingDrafts}
-              onClick={() => void onSaveDrafts()}
-              type="button"
-            >
-              {isSavingDrafts ? "Saving..." : "Save drafts"}
-            </button>
-            <button
-              className="rounded-full bg-[#0a0a0a] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-              disabled={!xStatus.connected || isScheduling}
-              onClick={() => void onSchedule()}
-              type="button"
-            >
-              {isScheduling ? "Scheduling..." : "Approve schedule"}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid gap-3">
-          {draftBlocks.map((post) => (
-            <XDraftEditor
-              copied={copiedAssetId === post.sourceId}
-              disabled={!xStatus.connected}
-              key={post.sourceId}
-              onChange={(text) => setXDraftText(post.sourceId, text)}
-              onCopyAsset={onCopyAsset}
-              onPublishNow={() =>
-                onPublishNow({
-                  label: post.label,
-                  sourceId: post.sourceId
-                })
-              }
-              post={post}
-              publishing={publishingPostId === post.sourceId}
-            />
-          ))}
-        </div>
-
-        {scheduleMessage ? (
-          <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
-            {scheduleMessage}
-          </p>
-        ) : null}
-
-        <div>
-          <p className="text-sm font-medium text-[#18181b]">Post history</p>
-          <div className="mt-3 grid gap-3">
-            {xPosts.length > 0 ? (
-              xPosts.map((post) => (
-                <ScheduledXPostRow
-                  copied={copiedAssetId === post.sourceId}
-                  key={post.id}
-                  onCancelPost={onCancelPost}
-                  onCopyAsset={onCopyAsset}
-                  onRetryPost={onRetryPost}
-                  post={post}
-                  publishing={publishingPostId === post.id}
-                />
-              ))
-            ) : (
-              <p className="rounded-3xl bg-[#f4f4f5] p-5 text-sm leading-6 text-[#71717a]">
-                No X posts saved yet.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function XDraftEditor({
-  copied,
-  disabled,
-  onChange,
-  onCopyAsset,
-  onPublishNow,
-  post,
-  publishing
-}: {
-  copied: boolean;
-  disabled: boolean;
-  onChange: (text: string) => void;
-  onCopyAsset: (id: string, text: string) => Promise<void>;
-  onPublishNow: () => Promise<void>;
-  post: { label: string; sourceId: string; text: string };
-  publishing: boolean;
-}) {
-  const remaining = 280 - post.text.length;
-  const isValid = validXPost(post.text);
-
-  return (
-    <div className="rounded-3xl bg-[#f4f4f5] p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-sm font-medium text-[#18181b]">{post.label}</p>
-        <span
-          className={`text-xs ${
-            remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
-          }`}
-        >
-          {remaining}
-        </span>
-      </div>
-      <textarea
-        className="field min-h-28 resize-y px-4 py-3 text-sm leading-6"
-        onChange={(event) => onChange(event.target.value)}
-        value={post.text}
-      />
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
-          onClick={() => void onCopyAsset(post.sourceId, post.text)}
-          type="button"
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-        <button
-          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
-          disabled={disabled || !isValid || publishing}
-          onClick={() => void onPublishNow()}
-          type="button"
-        >
-          {publishing ? "Publishing..." : "Approve and publish now"}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -2451,34 +2926,6 @@ function ScheduledXPostRow({
   );
 }
 
-function CopyBlock({
-  block,
-  copied,
-  onCopy
-}: {
-  block: { id: string; label: string; text: string };
-  copied: boolean;
-  onCopy: (id: string, text: string) => Promise<void>;
-}) {
-  return (
-    <div className="rounded-3xl bg-[#f4f4f5] p-5">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm font-medium text-[#18181b]">{block.label}</p>
-        <button
-          className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
-          onClick={() => void onCopy(block.id, block.text)}
-          type="button"
-        >
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-[#27272a]">
-        {block.text}
-      </p>
-    </div>
-  );
-}
-
 function ActionRow({ action }: { action: EmployeeAction }) {
   return (
     <div className="enter grid gap-3 rounded-3xl bg-[#f4f4f5] p-5 sm:grid-cols-[24px_1fr]">
@@ -2539,6 +2986,18 @@ function specialistDisplayName(bid: Pick<Bid, "id" | "agentName">) {
   }
 
   return bid.agentName.replace("Agent", "Specialist");
+}
+
+function flowStagePosition(stage: FlowStage) {
+  const order: FlowStage[] = [
+    "opportunity",
+    "specialist",
+    "delivery",
+    "payment",
+    "complete"
+  ];
+
+  return order.indexOf(stage);
 }
 
 function bidRepositoryReason(bid: Bid, assets: GrowthCampaignAssets) {
@@ -2632,10 +3091,43 @@ function defaultScheduleInput() {
 }
 
 function draftsFromAssets(assets: GrowthCampaignAssets) {
-  return assets.launchThread.reduce<Record<string, string>>((drafts, post, index) => {
-    drafts[`thread-${index}`] = post.text;
+  return deliveryAssetBlocks(assets).reduce<Record<string, string>>((drafts, block) => {
+    drafts[block.id] = block.text;
     return drafts;
   }, {});
+}
+
+function deliveryAssetBlocks(assets: GrowthCampaignAssets): DeliveryAssetBlock[] {
+  return [
+    ...assets.launchThread.map((post, index) => ({
+      id: `thread-${index}`,
+      kind: "tweet" as const,
+      label: post.label,
+      section: "Launch Thread",
+      text: post.text
+    })),
+    {
+      id: "launch-note",
+      kind: "note" as const,
+      label: "Launch note",
+      section: "Launch Note",
+      text: assets.launchNote
+    },
+    ...assets.founderReplies.map((reply, index) => ({
+      id: `reply-${index}`,
+      kind: "reply" as const,
+      label: reply.prompt,
+      section: "Founder Replies",
+      text: reply.text
+    })),
+    {
+      id: "follow-up-campaign",
+      kind: "follow-up" as const,
+      label: "Follow-up campaign",
+      section: "Follow-up Campaign",
+      text: assets.followUpCampaign
+    }
+  ];
 }
 
 function validXPost(text: string) {
