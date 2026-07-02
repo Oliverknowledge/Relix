@@ -40,6 +40,10 @@ import {
   type GrowthCampaignAssets
 } from "@/app/lib/campaign-assets";
 import type {
+  GoogleAnalyticsMetrics,
+  GoogleAnalyticsStatus
+} from "@/app/lib/google-analytics";
+import type {
   GitHubRepositoryContext,
   GitHubRepositorySummary
 } from "@/app/lib/github-tool";
@@ -57,6 +61,7 @@ import {
   explorerUrl,
   settlementAmountFor
 } from "@/app/lib/wallet";
+import type { WebsiteAnalysis } from "@/app/lib/website-analysis";
 import type {
   ScheduledXPost,
   XConnectionStatus
@@ -122,6 +127,12 @@ const emptyGitHubStatus: GitHubStatus = {
   connected: false
 };
 
+const emptyGoogleStatus: GoogleAnalyticsStatus = {
+  configured: false,
+  connected: false,
+  properties: []
+};
+
 const emptyXStatus: XConnectionStatus = {
   configured: false,
   connected: false
@@ -170,12 +181,19 @@ export default function Home() {
   const [campaign, setCampaign] = useState<CampaignPlan>(initialCampaign);
   const [githubStatus, setGithubStatus] =
     useState<GitHubStatus>(emptyGitHubStatus);
+  const [googleStatus, setGoogleStatus] =
+    useState<GoogleAnalyticsStatus>(emptyGoogleStatus);
   const [repositories, setRepositories] = useState<GitHubRepositorySummary[]>([]);
   const [selectedRepo, setSelectedRepo] = useState("");
+  const [selectedAnalyticsProperty, setSelectedAnalyticsProperty] = useState("");
   const [reposLoading, setReposLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(true);
   const [githubContext, setGithubContext] =
     useState<GitHubRepositoryContext | null>(null);
+  const [websiteAnalysis, setWebsiteAnalysis] =
+    useState<WebsiteAnalysis | null>(null);
+  const [analyticsMetrics, setAnalyticsMetrics] =
+    useState<GoogleAnalyticsMetrics | null>(null);
   const [repositoryAnalysis, setRepositoryAnalysis] =
     useState<RepositoryAnalysis | null>(null);
   const [campaignMemory, setCampaignMemory] = useState<CampaignMemoryRecord[]>(
@@ -216,12 +234,23 @@ export default function Home() {
     setStatusLoading(true);
 
     try {
-      const [githubResponse, xResponse] = await Promise.all([
+      const [githubResponse, googleResponse, xResponse] = await Promise.all([
         fetch("/api/github/status", { cache: "no-store" }),
+        fetch("/api/google/properties", { cache: "no-store" }),
         fetch("/api/x/status", { cache: "no-store" })
       ]);
 
       setGithubStatus((await githubResponse.json()) as GitHubStatus);
+      const nextGoogleStatus =
+        (await googleResponse.json()) as GoogleAnalyticsStatus;
+
+      setGoogleStatus(nextGoogleStatus);
+      setSelectedAnalyticsProperty(
+        (current) =>
+          current ||
+          nextGoogleStatus.properties?.[0]?.propertyId ||
+          ""
+      );
       setXStatus((await xResponse.json()) as XConnectionStatus);
     } catch {
       setIntegrationError("Could not read connection status.");
@@ -467,10 +496,30 @@ export default function Home() {
     const settlementSol = settlementAmountFor(winningBid.priceSol);
     const settlementLamports = Math.round(settlementSol * LAMPORTS_PER_SOL);
 
+    if (campaign.budgetStatus.blocked) {
+      setReleaseError(campaign.budgetStatus.message);
+      return;
+    }
+
     setReleaseError(null);
     setReleaseStatus("signing");
 
     try {
+      const currentLamports = await connection.getBalance(publicKey, "confirmed");
+      const currentBalanceSol = currentLamports / LAMPORTS_PER_SOL;
+
+      setBalanceSol(currentBalanceSol);
+
+      if (currentBalanceSol < settlementSol) {
+        setReleaseStatus("idle");
+        setReleaseError(
+          `Insufficient devnet SOL. Payment requires ${formatSol(
+            settlementSol
+          )}, and the connected wallet has ${formatSol(currentBalanceSol)}.`
+        );
+        return;
+      }
+
       const latestBlockhash = await connection.getLatestBlockhash("confirmed");
       const transaction = new Transaction({
         feePayer: publicKey,
@@ -554,11 +603,6 @@ export default function Home() {
       return;
     }
 
-    if (!connected) {
-      setIntegrationError("Connect Phantom before hiring the employee.");
-      return;
-    }
-
     setPayment(null);
     setReleaseError(null);
     setReleaseStatus("idle");
@@ -568,6 +612,8 @@ export default function Home() {
     setHasRun(false);
     setIntegrationError(null);
     setGithubContext(null);
+    setWebsiteAnalysis(null);
+    setAnalyticsMetrics(null);
     setRepositoryAnalysis(null);
     setCampaignMemory([]);
     setCampaignAssets(null);
@@ -628,6 +674,29 @@ export default function Home() {
       await addLog("Reading recent commits...", "active", 640);
       await addLog(`${context.commits.length} commits analysed`, "done");
 
+      await addLog("Reading website...", "active", 640);
+      const nextWebsite = form.websiteUrl.trim()
+        ? await fetchWebsiteAnalysis(form.websiteUrl)
+        : websiteNotProvided();
+
+      setWebsiteAnalysis(nextWebsite);
+      await addLog(
+        nextWebsite.ok ? "Website understood" : "Website could not be analysed",
+        "done"
+      );
+
+      await addLog("Reading analytics...", "active", 640);
+      const nextAnalytics =
+        googleStatus.connected && selectedAnalyticsProperty
+          ? await fetchAnalyticsMetrics(selectedAnalyticsProperty)
+          : analyticsNotConnected();
+
+      setAnalyticsMetrics(nextAnalytics);
+      await addLog(
+        nextAnalytics.connected ? "Analytics understood" : nextAnalytics.summary,
+        "done"
+      );
+
       const nextRequest: FounderRequest = {
         ...form,
         description:
@@ -638,13 +707,16 @@ export default function Home() {
       };
       const nextCampaign = createCampaignPlan(nextRequest);
       const nextAssets = createCampaignAssets({
+        analytics: nextAnalytics,
         github: context,
-        goal: nextRequest.goal
+        goal: nextRequest.goal,
+        website: nextWebsite
       });
       const nextAnalysis = analyzeRepository(context);
       const previousCampaigns = await loadCampaignMemory(context.fullName);
       const nextWork = createGrowthEmployeeWork({
         assets: nextAssets,
+        campaign: nextCampaign,
         github: context,
         specialistName: specialistDisplayName(nextCampaign.winningBid)
       });
@@ -659,10 +731,21 @@ export default function Home() {
       await loadXPosts(nextCampaign.id, true);
       void saveActivity(nextCampaign.id, context.fullName, pendingActivity);
 
+      await addLog("Comparing product and website...", "active", 720);
+      await addLog(nextAssets.websiteComparison.summary, "done");
       await addLog("Detecting launch-worthy changes...", "active", 720);
       await addLog(nextAssets.opportunityLabel, "done");
       await addLog("Planning campaign...", "active", 720);
-      await addLog("Launch opportunity identified", "done");
+      await addLog("Launch opportunity confirmed", "done");
+      await addLog("Checking budget...", "active", 640);
+      await addLog(
+        nextCampaign.budgetStatus.blocked
+          ? "Budget needs attention"
+          : nextCampaign.budgetStatus.constrainedByBudget
+            ? "Budget changed specialist choice"
+            : "Budget fits selected specialist",
+        "done"
+      );
       await addLog("Searching marketplace...", "active", 680);
       await addLog("4 specialists found", "done");
       await addLog("Requesting bids...", "active", 760);
@@ -1054,6 +1137,49 @@ export default function Home() {
     return data.records || [];
   };
 
+  const fetchWebsiteAnalysis = async (url: string) => {
+    try {
+      const response = await fetch("/api/website/analyse", {
+        body: JSON.stringify({ url }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST"
+      });
+      const data = (await response.json()) as {
+        analysis?: WebsiteAnalysis;
+      };
+
+      return data.analysis || websiteNotProvided();
+    } catch {
+      return {
+        ...websiteNotProvided(),
+        error: "Website could not be analysed.",
+        url
+      };
+    }
+  };
+
+  const fetchAnalyticsMetrics = async (propertyId: string) => {
+    try {
+      const response = await fetch(
+        `/api/google/metrics?propertyId=${encodeURIComponent(propertyId)}`,
+        { cache: "no-store" }
+      );
+      const data = (await response.json()) as {
+        metrics?: GoogleAnalyticsMetrics;
+      };
+
+      return data.metrics || analyticsNotConnected();
+    } catch {
+      return {
+        ...analyticsNotConnected(),
+        error: "Analytics could not be read.",
+        summary: "Analytics could not be read"
+      };
+    }
+  };
+
   const saveCampaignMemory = async (paymentResult: PaymentResult) => {
     if (!githubContext || !campaignAssets) {
       return;
@@ -1116,6 +1242,7 @@ export default function Home() {
           disconnectWallet={disconnect}
           form={form}
           githubStatus={githubStatus}
+          googleStatus={googleStatus}
           integrationError={integrationError}
           isAirdropping={isAirdropping}
           isRunning={isRunning}
@@ -1127,8 +1254,10 @@ export default function Home() {
           reposLoading={reposLoading}
           requestDevnetSol={requestDevnetSol}
           selectWallet={connectWallet}
+          selectedAnalyticsProperty={selectedAnalyticsProperty}
           selectedRepo={selectedRepo}
           setForm={setForm}
+          setSelectedAnalyticsProperty={setSelectedAnalyticsProperty}
           setSelectedRepo={setSelectedRepo}
           submit={hireEmployee}
           wallets={wallets}
@@ -1153,7 +1282,9 @@ export default function Home() {
       activeStage !== "working" ? (
         <GuidedResultFlow
           activeStage={activeStage}
+          analyticsMetrics={analyticsMetrics}
           assets={campaignAssets}
+          balanceSol={balanceSol}
           campaign={campaign}
           connected={connected}
           copiedAssetId={copiedAssetId}
@@ -1186,6 +1317,7 @@ export default function Home() {
             setXDrafts((drafts) => ({ ...drafts, [sourceId]: text }))
           }
           visibleActionCount={executedActionCount}
+          websiteAnalysis={websiteAnalysis}
           work={growthWork}
           xDrafts={xDrafts}
           xPosts={xPosts}
@@ -1203,6 +1335,7 @@ function SetupSection({
   disconnectWallet,
   form,
   githubStatus,
+  googleStatus,
   integrationError,
   isAirdropping,
   isRunning,
@@ -1214,8 +1347,10 @@ function SetupSection({
   reposLoading,
   requestDevnetSol,
   selectWallet,
+  selectedAnalyticsProperty,
   selectedRepo,
   setForm,
+  setSelectedAnalyticsProperty,
   setSelectedRepo,
   submit,
   wallets,
@@ -1228,6 +1363,7 @@ function SetupSection({
   disconnectWallet: () => Promise<void>;
   form: FounderRequest;
   githubStatus: GitHubStatus;
+  googleStatus: GoogleAnalyticsStatus;
   integrationError: string | null;
   isAirdropping: boolean;
   isRunning: boolean;
@@ -1239,8 +1375,10 @@ function SetupSection({
   reposLoading: boolean;
   requestDevnetSol: () => Promise<void>;
   selectWallet: (walletName: WalletName) => void;
+  selectedAnalyticsProperty: string;
   selectedRepo: string;
   setForm: Dispatch<SetStateAction<FounderRequest>>;
+  setSelectedAnalyticsProperty: (value: string) => void;
   setSelectedRepo: (value: string) => void;
   submit: () => Promise<void>;
   wallets: Wallet[];
@@ -1256,8 +1394,8 @@ function SetupSection({
         </h1>
         <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
           Connect GitHub and Phantom. Give Relix one goal. It reads what
-          shipped, hires a specialist, settles payment, and prepares approved X
-          posts.
+          shipped, hires a specialist, settles payment, and prepares approved
+          launch posts.
         </p>
       </div>
 
@@ -1289,6 +1427,32 @@ function SetupSection({
           refreshRepositories={refreshRepositories}
           selectedRepo={selectedRepo}
           setSelectedRepo={setSelectedRepo}
+        />
+
+        <label className="grid gap-2">
+          <span className="text-sm font-medium text-[#18181b]">
+            Website URL
+          </span>
+          <input
+            className="field h-14 px-4 text-base"
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                websiteUrl: event.target.value
+              }))
+            }
+            placeholder="https://getsnowball.app"
+            type="url"
+            value={form.websiteUrl}
+          />
+        </label>
+
+        <GoogleAnalyticsConnection
+          googleStatus={googleStatus}
+          loading={loading}
+          refresh={refreshToolStatuses}
+          selectedProperty={selectedAnalyticsProperty}
+          setSelectedProperty={setSelectedAnalyticsProperty}
         />
 
         <div className="grid gap-2">
@@ -1460,7 +1624,9 @@ function SetupWalletConnection({
 
 function GuidedResultFlow({
   activeStage,
+  analyticsMetrics,
   assets,
+  balanceSol,
   campaign,
   connected,
   copiedAssetId,
@@ -1491,13 +1657,16 @@ function GuidedResultFlow({
   setScheduleTime,
   setXDraftText,
   visibleActionCount,
+  websiteAnalysis,
   work,
   xDrafts,
   xPosts,
   xStatus
 }: {
   activeStage: FlowStage;
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
   assets: GrowthCampaignAssets;
+  balanceSol: number | null;
   campaign: CampaignPlan;
   connected: boolean;
   copiedAssetId: string | null;
@@ -1537,6 +1706,7 @@ function GuidedResultFlow({
   setScheduleTime: (value: string) => void;
   setXDraftText: (sourceId: string, text: string) => void;
   visibleActionCount: number;
+  websiteAnalysis: WebsiteAnalysis | null;
   work: GrowthEmployeeWork;
   xDrafts: Record<string, string>;
   xPosts: ScheduledXPost[];
@@ -1595,10 +1765,12 @@ function GuidedResultFlow({
         {activeStage === "opportunity" ? (
           <LaunchOpportunitySection
             assets={assets}
+            analyticsMetrics={analyticsMetrics}
             campaign={campaign}
             context={repositoryContext}
             repositoryAnalysis={repositoryAnalysis}
             setActiveStage={setActiveStage}
+            websiteAnalysis={websiteAnalysis}
           />
         ) : null}
 
@@ -1645,6 +1817,8 @@ function GuidedResultFlow({
             error={error}
             onRelease={onRelease}
             payment={payment}
+            balanceSol={balanceSol}
+            budgetStatus={campaign.budgetStatus}
             releaseStatus={releaseStatus}
             winningBid={campaign.winningBid}
           />
@@ -1696,20 +1870,39 @@ function CollapsedStep({
   );
 }
 
+function SignalRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl bg-[#f4f4f5] px-4 py-3">
+      <p className="text-xs font-medium text-[#71717a]">{label}</p>
+      <p className="mt-1 text-sm leading-6 text-[#27272a]">{value}</p>
+    </div>
+  );
+}
+
 function LaunchOpportunitySection({
+  analyticsMetrics,
   assets,
   campaign,
   context,
   repositoryAnalysis,
-  setActiveStage
+  setActiveStage,
+  websiteAnalysis
 }: {
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
   assets: GrowthCampaignAssets;
   campaign: CampaignPlan;
   context: GitHubRepositoryContext;
   repositoryAnalysis: RepositoryAnalysis;
   setActiveStage: (stage: FlowStage) => void;
+  websiteAnalysis: WebsiteAnalysis | null;
 }) {
   const commits = context.commits.slice(0, 3);
+  const websitePromise = websiteAnalysis?.ok
+    ? websiteAnalysis.promise
+    : "Website could not be analysed";
+  const analyticsLine = analyticsMetrics?.connected
+    ? analyticsMetrics.summary
+    : "Analytics not connected";
 
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center">
@@ -1725,6 +1918,13 @@ function LaunchOpportunitySection({
         <p className="mt-5 text-base leading-7 text-[#27272a]">
           {assets.opportunity}
         </p>
+
+        <div className="mt-8 grid gap-3">
+          <SignalRow label="Website" value={websitePromise} />
+          <SignalRow label="Comparison" value={assets.websiteComparison.summary} />
+          <SignalRow label="Analytics" value={analyticsLine} />
+          <SignalRow label="Landing page" value={assets.landingPageRecommendation} />
+        </div>
 
         <div className="mt-8">
           <p className="text-sm font-medium text-[#18181b]">Recent commits</p>
@@ -1846,8 +2046,12 @@ function SpecialistSelectionSection({
         </p>
         <p className="mt-4 text-xl leading-8 tracking-[-0.02em] text-[#27272a]">
           I selected {specialistDisplayName(campaign.winningBid)} because your
-          latest repository work points to {assets.productArea}, and your goal
-          requires urgency.
+          latest repository work points to {assets.productArea}, your website
+          read says {assets.websiteComparison.summary.toLowerCase()}, and your
+          budget is {formatSol(campaign.request.budgetSol)}.
+        </p>
+        <p className="mt-4 text-sm leading-6 text-[#52525b]">
+          {campaign.budgetStatus.message}
         </p>
         <p className="mt-4 text-sm leading-6 text-[#71717a]">
           {previousCampaign
@@ -2037,6 +2241,93 @@ function GitHubConnection({
         >
           Refresh connection
         </button>
+      )}
+    </div>
+  );
+}
+
+function GoogleAnalyticsConnection({
+  googleStatus,
+  loading,
+  refresh,
+  selectedProperty,
+  setSelectedProperty
+}: {
+  googleStatus: GoogleAnalyticsStatus;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  selectedProperty: string;
+  setSelectedProperty: (value: string) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-full border hairline bg-white px-4 py-3 text-sm text-[#71717a]">
+        Checking Analytics connection
+      </div>
+    );
+  }
+
+  if (!googleStatus.configured) {
+    return (
+      <div className="grid gap-2">
+        <div className="rounded-full border hairline bg-white px-4 py-3 text-sm text-[#71717a]">
+          Analytics OAuth needs credentials
+        </div>
+        <button
+          className="w-fit text-left text-xs text-[#71717a] transition hover:text-[#0a0a0a]"
+          onClick={() => void refresh()}
+          type="button"
+        >
+          Refresh connection
+        </button>
+      </div>
+    );
+  }
+
+  if (!googleStatus.connected) {
+    return (
+      <div className="grid gap-2">
+        <a
+          className="w-fit rounded-full border hairline bg-white px-4 py-3 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a]"
+          href="/api/google/login"
+        >
+          Connect Google Analytics
+        </a>
+        {googleStatus.error ? (
+          <p className="text-xs leading-5 text-[#71717a]">
+            {googleStatus.error}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-3">
+      <div className="w-fit rounded-full border border-[#0a0a0a] bg-[#0a0a0a] px-4 py-3 text-sm font-medium text-white">
+        Google Analytics connected
+      </div>
+      {googleStatus.properties?.length ? (
+        <label className="grid gap-2">
+          <span className="text-sm font-medium text-[#18181b]">
+            Analytics property
+          </span>
+          <select
+            className="field h-14 px-4 text-base"
+            onChange={(event) => setSelectedProperty(event.target.value)}
+            value={selectedProperty}
+          >
+            {googleStatus.properties.map((property) => (
+              <option key={property.propertyId} value={property.propertyId}>
+                {property.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="text-xs leading-5 text-[#71717a]">
+          No Analytics properties found.
+        </p>
       )}
     </div>
   );
@@ -2644,6 +2935,8 @@ function PostHistory({
 }
 
 function EscrowSection({
+  balanceSol,
+  budgetStatus,
   connected,
   winningBid,
   payment,
@@ -2651,6 +2944,8 @@ function EscrowSection({
   releaseStatus,
   onRelease
 }: {
+  balanceSol: number | null;
+  budgetStatus: CampaignPlan["budgetStatus"];
   connected: boolean;
   winningBid: Bid;
   payment: PaymentResult | null;
@@ -2659,6 +2954,9 @@ function EscrowSection({
   onRelease: () => Promise<void>;
 }) {
   const settlementSol = settlementAmountFor(winningBid.priceSol);
+  const remainingBudgetAfterPayment = payment
+    ? budgetStatus.remainingBudgetSol
+    : budgetStatus.requestedBudgetSol - winningBid.priceSol;
   const isBusy = releaseStatus === "signing" || releaseStatus === "confirming";
   const releaseLabel =
     releaseStatus === "signing"
@@ -2703,6 +3001,17 @@ function EscrowSection({
           The specialist has completed the requested work. Payment will be
           released after your approval.
         </p>
+        <div className="mb-7 grid gap-3 rounded-2xl bg-[#f4f4f5] p-4 text-sm text-[#52525b]">
+          <p>{budgetStatus.message}</p>
+          <p>
+            Remaining campaign budget after specialist:{" "}
+            {formatSol(Math.max(0, remainingBudgetAfterPayment))}.
+          </p>
+          <p>
+            Devnet wallet balance:{" "}
+            {balanceSol === null ? "not connected" : formatSol(balanceSol)}.
+          </p>
+        </div>
         <div className="space-y-0">
           {paymentRows.map((row, index) => {
             return (
@@ -2758,7 +3067,7 @@ function EscrowSection({
             </div>
             <button
               className="rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-              disabled={!connected || isBusy}
+              disabled={!connected || budgetStatus.blocked || isBusy}
               onClick={() => void onRelease()}
               type="button"
             >
@@ -3128,6 +3437,35 @@ function deliveryAssetBlocks(assets: GrowthCampaignAssets): DeliveryAssetBlock[]
       text: assets.followUpCampaign
     }
   ];
+}
+
+function websiteNotProvided(): WebsiteAnalysis {
+  return {
+    audience: "",
+    ctas: [],
+    error: "Website URL was not provided.",
+    h1: "",
+    h2s: [],
+    languageSignals: [],
+    mainText: "",
+    metaDescription: "",
+    ok: false,
+    primaryCta: "",
+    promise: "",
+    recommendation:
+      "Review the landing page manually before increasing campaign spend.",
+    title: "",
+    url: ""
+  };
+}
+
+function analyticsNotConnected(): GoogleAnalyticsMetrics {
+  return {
+    connected: false,
+    summary: "Analytics not connected",
+    topPages: [],
+    topSources: []
+  };
 }
 
 function validXPost(text: string) {

@@ -10,6 +10,7 @@ export type FounderRequest = {
   description: string;
   gameName: string;
   goal: string;
+  websiteUrl: string;
 };
 
 export type Bid = {
@@ -28,6 +29,14 @@ export type Bid = {
 
 export type CampaignPlan = {
   bids: Bid[];
+  budgetStatus: {
+    blocked: boolean;
+    constrainedByBudget: boolean;
+    message: string;
+    remainingBudgetSol: number;
+    requestedBudgetSol: number;
+    selectedPriceSol: number;
+  };
   daysRemaining: number;
   id: string;
   request: FounderRequest;
@@ -58,17 +67,19 @@ export const defaultFounderRequest: FounderRequest = {
   budgetSol: 10,
   deadline: "2026-07-18",
   constraints:
-    "Keep founder review before public posts. No paid bots. No fake engagement."
+    "Keep founder review before public posts. No paid bots. No fake engagement.",
+  websiteUrl: ""
 };
 
 export function createCampaignPlan(request: FounderRequest): CampaignPlan {
   const cleanRequest = normalizeRequest(request);
   const daysRemaining = getDaysRemaining(cleanRequest.deadline);
   const bids = createSpecialistBids(cleanRequest, daysRemaining);
-  const winningBid = [...bids].sort((a, b) => b.score - a.score)[0];
+  const { budgetStatus, winningBid } = selectWinningBid(bids, cleanRequest);
 
   return {
     bids,
+    budgetStatus,
     daysRemaining,
     id: campaignId(cleanRequest),
     request: cleanRequest,
@@ -89,7 +100,8 @@ function normalizeRequest(request: FounderRequest): FounderRequest {
     budgetSol: clamp(Number(request.budgetSol) || 0, 0.4, 50),
     deadline: request.deadline || defaultFounderRequest.deadline,
     constraints:
-      request.constraints.trim() || defaultFounderRequest.constraints
+      request.constraints.trim() || defaultFounderRequest.constraints,
+    websiteUrl: request.websiteUrl.trim()
   };
 }
 
@@ -182,6 +194,71 @@ function createSpecialistBids(
     ...bid,
     score: bid.id === "tournament" ? (deadlineIsClose ? 4 : 3.8) : baseFit(bid.id)
   }));
+}
+
+function selectWinningBid(bids: Bid[], request: FounderRequest) {
+  const ranked = [...bids].sort((a, b) => b.score - a.score);
+  const eligible = ranked.filter((bid) => bid.priceSol <= request.budgetSol);
+  const winningBid = eligible[0] || ranked[ranked.length - 1];
+  const preferredBid = ranked[0];
+  const constrainedByBudget = winningBid.id !== preferredBid.id;
+  const remainingBudgetSol = Number(
+    (request.budgetSol - winningBid.priceSol).toFixed(3)
+  );
+  const blocked = winningBid.priceSol > request.budgetSol;
+
+  return {
+    budgetStatus: {
+      blocked,
+      constrainedByBudget,
+      message: budgetMessage({
+        blocked,
+        preferredBid,
+        request,
+        winningBid
+      }),
+      remainingBudgetSol,
+      requestedBudgetSol: request.budgetSol,
+      selectedPriceSol: winningBid.priceSol
+    },
+    winningBid
+  };
+}
+
+function budgetMessage({
+  blocked,
+  preferredBid,
+  request,
+  winningBid
+}: {
+  blocked: boolean;
+  preferredBid: Bid;
+  request: FounderRequest;
+  winningBid: Bid;
+}) {
+  if (blocked) {
+    return `Your budget is ${formatSol(
+      request.budgetSol
+    )}. The cheapest specialist costs ${formatSol(
+      winningBid.priceSol
+    )}, so increase budget before payment.`;
+  }
+
+  if (winningBid.id !== preferredBid.id) {
+    return `Your budget is ${formatSol(
+      request.budgetSol
+    )}. I selected ${winningBid.agentName.replace(
+      "Agent",
+      "Specialist"
+    )} because ${preferredBid.agentName.replace(
+      "Agent",
+      "Specialist"
+    )} costs ${formatSol(preferredBid.priceSol)} and exceeds the budget.`;
+  }
+
+  return `Budget fits selected specialist. ${formatSol(
+    request.budgetSol - winningBid.priceSol
+  )} remains after the contract amount.`;
 }
 
 function baseFit(id: SpecialistId) {

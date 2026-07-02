@@ -59,6 +59,10 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 GITHUB_CLIENT_ID=Ov23li16wipKedVNy38w
 GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
 
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/google/callback
+
 X_CLIENT_ID=your_x_oauth_2_client_id
 X_CLIENT_SECRET=your_x_oauth_2_client_secret
 X_REDIRECT_URI=http://localhost:3000/api/x/callback
@@ -82,6 +86,18 @@ GitHub OAuth callback:
 http://localhost:3000/api/github/callback
 ```
 
+Google OAuth callback:
+
+```text
+http://localhost:3000/api/google/callback
+```
+
+For Google, create an OAuth client and enable read-only Analytics access. Relix requests:
+
+```text
+https://www.googleapis.com/auth/analytics.readonly
+```
+
 X Developer Portal callback:
 
 ```text
@@ -93,6 +109,34 @@ For X, enable OAuth 2.0 and use a Web App / confidential client. Relix requests 
 ```text
 tweet.read users.read tweet.write offline.access
 ```
+
+## Website Analysis
+
+The setup form accepts a product website URL. During the employee workflow, Relix calls `POST /api/website/analyse` server-side and reads:
+
+- page title
+- meta description
+- `h1`
+- `h2` headings
+- main visible text
+- CTA language
+- pricing, signup, and waitlist language
+
+The route validates `http` and `https` URLs, times out slow requests, and returns a non-crashing fallback if the page cannot be read. The employee continues with repository context when website analysis fails.
+
+## Google Analytics
+
+Google Analytics is optional. When configured and connected, Relix lists GA4 properties and reads recent high-level metrics:
+
+- users
+- sessions
+- pageviews
+- top traffic sources
+- top pages
+- conversions when available
+- engagement rate when available
+
+The UI only shows connection state and property selection. Metrics are used in employee reasoning, not shown as a dashboard.
 
 ## X Flow
 
@@ -172,6 +216,11 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 
 ## API Routes
 
+- `POST /api/website/analyse`
+- `GET /api/google/login`
+- `GET /api/google/callback`
+- `GET /api/google/properties`
+- `GET /api/google/metrics`
 - `GET /api/x/connect`
 - `GET /api/x/callback`
 - `GET /api/x/status`
@@ -186,6 +235,8 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 - UI: `app/page.tsx`
 - Wallet Service: `app/lib/wallet.ts` and `app/providers.tsx`
 - GitHub Service: `app/lib/github-tool.ts` and `app/api/github/*`
+- Website Analysis Service: `app/lib/website-analysis.ts` and `app/api/website/analyse`
+- Google Analytics Service: `app/lib/google-analytics.ts` and `app/api/google/*`
 - Repository Analysis Service: `app/lib/repository-analysis.ts`
 - Employee Engine: `app/lib/growth-employee.ts`
 - Specialist Marketplace: `app/lib/specialist-agents.ts` and `app/lib/campaign.ts`
@@ -206,6 +257,14 @@ Connect:
 3. Open `http://localhost:3000`.
 4. Click `Connect X`.
 5. Confirm the UI shows `X @username`.
+
+Website and Analytics:
+
+1. Enter a product website URL in setup.
+2. Connect Google Analytics if credentials are configured.
+3. Select a GA4 property when available.
+4. Hire the employee.
+5. Confirm the work log includes website reading, analytics reading, product/site comparison, and budget checking.
 
 Schedule:
 

@@ -6,6 +6,12 @@ import {
   analyzeRepository,
   type RepositoryAnalysis
 } from "@/app/lib/repository-analysis";
+import type { GoogleAnalyticsMetrics } from "@/app/lib/google-analytics";
+import {
+  compareWebsiteWithGitHub,
+  type WebsiteAnalysis,
+  type WebsiteComparison
+} from "@/app/lib/website-analysis";
 
 export type RepositoryEvidence = {
   label: string;
@@ -25,9 +31,11 @@ export type FounderReply = {
 
 export type GrowthCampaignAssets = {
   analysis: RepositoryAnalysis;
+  analyticsSummary: string;
   evidence: RepositoryEvidence[];
   followUpCampaign: string;
   founderReplies: FounderReply[];
+  landingPageRecommendation: string;
   launchNote: string;
   launchThread: LaunchThreadPost[];
   nextRecommendation: string;
@@ -38,14 +46,20 @@ export type GrowthCampaignAssets = {
   repository: string;
   sourceSummary: string;
   specialistReport: string;
+  websiteComparison: WebsiteComparison;
+  websiteSummary: string;
 };
 
 export function createCampaignAssets({
   github,
-  goal
+  goal,
+  analytics,
+  website
 }: {
+  analytics?: GoogleAnalyticsMetrics | null;
   github: GitHubRepositoryContext;
   goal: string;
+  website?: WebsiteAnalysis | null;
 }): GrowthCampaignAssets {
   const productName = humanizeRepoName(github.name);
   const productArea = inferProductArea([
@@ -67,33 +81,52 @@ export function createCampaignAssets({
   const evidence = createEvidence(github, repoHeadline);
   const opportunityLabel = opportunityFromArea(productArea);
   const analysis = analyzeRepository(github);
+  const websiteComparison = compareWebsiteWithGitHub({
+    github,
+    website: website || null
+  });
+  const websiteSummary = website?.ok
+    ? `The website promises "${website.promise}" for ${website.audience}. Primary CTA: ${website.primaryCta}.`
+    : "Website could not be analysed.";
+  const analyticsSummary =
+    analytics?.connected && analytics.summary
+      ? analytics.summary
+      : "Analytics not connected.";
   const opportunity = `I noticed ${plainLower(
     launchChange
-  )}. That gives new users a concrete reason to try ${productName} now.`;
+  )}. The website read says: ${websiteComparison.summary.toLowerCase()}. That gives new users a concrete reason to try ${productName} now.`;
 
   return {
     analysis,
+    analyticsSummary,
     evidence,
     followUpCampaign: `Second announcement: show what founders learned from the first launch window, then point users back to ${plainLower(
       supportingChange
-    )}. Keep it specific: what improved, who should try it, and what feedback is needed next.`,
+    )}. Keep it specific: what improved, who should try it, and how it connects to ${
+      website?.primaryCta || "the signup path"
+    }.`,
     founderReplies: [
       {
         prompt: "Why should I try it now?",
-        text: `Because the latest ${productName} work is focused on ${productArea}. The campaign should point people at the new first-session experience, not make a broad traction claim.`
+        text: `Because the latest ${productName} work is focused on ${productArea}. The campaign should connect that update to ${
+          website?.primaryCta || "the landing page CTA"
+        }, not make a broad traction claim.`
       },
       {
         prompt: "What changed?",
-        text: `${launchChange}. The README and recent commits both point to ${productArea}, so the launch should stay tightly focused on that improvement.`
+        text: `${launchChange}. The repository points to ${productArea}. The website read says: ${websiteComparison.summary.toLowerCase()}.`
       },
       {
         prompt: "Is this live?",
         text: `The campaign assets are ready for review. Nothing has been posted or sent yet.`
       }
     ],
+    landingPageRecommendation: websiteComparison.recommendation,
     launchNote: `${productName} is ready for a focused launch around ${productArea}. Recent repository work shows ${plainLower(
       launchChange
-    )}. The campaign should make one clear promise: ${goalLine.toLowerCase()} by giving people a reason to try the newest build immediately.`,
+    )}. The website currently says: ${
+      website?.promise || "the landing page needs review"
+    }. The campaign should make one clear promise: ${goalLine.toLowerCase()} by giving people a reason to try the newest build immediately.`,
     launchThread: [
       {
         label: "Tweet 1",
@@ -101,21 +134,30 @@ export function createCampaignAssets({
       },
       {
         label: "Tweet 2",
-        text: `The reason this matters: the recent work is about ${productArea}. That is exactly where new users decide whether to keep going.`
+        text: `The reason this matters: the recent work is about ${productArea}. The landing page should now point people straight at ${
+          website?.primaryCta || "signup"
+        }.`
       },
       {
         label: "Tweet 3",
-        text: `Next step: invite players into the updated flow, watch where they hesitate, and use the tournament window to turn the new build into real feedback.`
+        text: `Next step: invite users into the updated flow, watch where they hesitate, and use this launch window to turn the new build into real feedback.`
       }
     ],
-    nextRecommendation: nextRecommendationFor(productArea, supportingChange),
+    nextRecommendation:
+      websiteComparison.status === "missing-latest-update"
+        ? websiteComparison.recommendation
+        : nextRecommendationFor(productArea, supportingChange),
     opportunity,
     opportunityLabel,
     productArea,
     productName,
     repository: github.fullName,
     sourceSummary: github.recentSummary,
-    specialistReport: `I've prepared a launch centred around ${productArea}. The event gives new users a reason to try the latest update immediately. All campaign assets are ready.`
+    specialistReport: `I've prepared a launch centred around ${productArea}. The campaign ties recent repository work to ${
+      website?.primaryCta || "the landing page CTA"
+    }. All campaign assets are ready.`,
+    websiteComparison,
+    websiteSummary
   };
 }
 
