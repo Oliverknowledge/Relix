@@ -3,7 +3,7 @@ import { getUserId } from "@/app/lib/session";
 import { publishXPost } from "@/app/lib/x-api";
 import {
   claimXPostForPublishing,
-  getXAccountForUser,
+  getXAccountForRequest,
   listDueScheduledXPosts,
   listScheduledXPosts,
   markXPostFailed,
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   const publishDue = request.nextUrl.searchParams.get("publishDue") === "true";
 
   if (publishDue) {
-    await publishDuePosts(userId);
+    await publishDuePosts(request, userId);
   }
 
   const posts = await listScheduledXPosts({ campaignId, userId });
@@ -29,12 +29,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ posts });
 }
 
-async function publishDuePosts(userId: string) {
+async function publishDuePosts(request: NextRequest, userId: string) {
   const duePosts = await listDueScheduledXPosts(userId);
 
   for (const duePost of duePosts) {
     try {
-      const account = await getXAccountForUser(userId);
+      const account = await getXAccountForRequest(request, userId);
 
       if (!account) {
         return;

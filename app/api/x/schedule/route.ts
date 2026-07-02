@@ -4,7 +4,7 @@ import { xConfiguration } from "@/app/lib/x-api";
 import type { XPostInput } from "@/app/lib/x-types";
 import {
   cancelScheduledXPost,
-  getXAccountForUser,
+  getXAccountForRequest,
   saveXPostDrafts,
   scheduleXPosts,
   updateScheduledXPost
@@ -33,11 +33,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const userId = requireUserId(request);
-    const account = await getXAccountForUser(userId);
+    const account = await getXAccountForRequest(request, userId);
 
     if (!account) {
       return NextResponse.json(
-        { error: "Connect X before scheduling posts." },
+        {
+          error:
+            "Reconnect X before scheduling posts. The server could not find the connected X account."
+        },
         { status: 401 }
       );
     }

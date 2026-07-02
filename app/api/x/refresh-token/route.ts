@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUserId } from "@/app/lib/session";
 import { refreshXAccountAccess, xConfiguration } from "@/app/lib/x-api";
-import { getXAccountForUser, publicXAccount } from "@/app/lib/x-store";
+import { setXAccountCookie } from "@/app/lib/x-account-cookie";
+import { getXAccountForRequest, publicXAccount } from "@/app/lib/x-store";
 
 export async function POST(request: NextRequest) {
   const config = xConfiguration();
@@ -15,21 +16,28 @@ export async function POST(request: NextRequest) {
 
   try {
     const userId = requireUserId(request);
-    const account = await getXAccountForUser(userId);
+    const account = await getXAccountForRequest(request, userId);
 
     if (!account) {
       return NextResponse.json(
-        { error: "Connect X before refreshing tokens." },
+        {
+          error:
+            "Reconnect X before refreshing tokens. The server could not find the connected X account."
+        },
         { status: 401 }
       );
     }
 
     const refreshed = await refreshXAccountAccess(account);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       account: publicXAccount(refreshed.account),
       ok: true
     });
+
+    setXAccountCookie(response, refreshed.account);
+
+    return response;
   } catch (error) {
     return NextResponse.json(
       {

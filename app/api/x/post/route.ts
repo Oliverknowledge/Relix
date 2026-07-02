@@ -6,8 +6,11 @@ import {
   xConfiguration
 } from "@/app/lib/x-api";
 import {
+  setXAccountCookie
+} from "@/app/lib/x-account-cookie";
+import {
   claimXPostForPublishing,
-  getXAccountForUser,
+  getXAccountForRequest,
   markXPostFailed,
   markXPostPublished,
   prepareApprovedXPost
@@ -46,11 +49,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const userId = requireUserId(request);
-    const account = await getXAccountForUser(userId);
+    const account = await getXAccountForRequest(request, userId);
 
     if (!account) {
       return NextResponse.json(
-        { error: "Connect X before publishing." },
+        {
+          error:
+            "Reconnect X before publishing. The server could not find the connected X account."
+        },
         { status: 401 }
       );
     }
@@ -83,16 +89,21 @@ export async function POST(request: NextRequest) {
       xPostUrl: published.url
     });
 
-    return NextResponse.json({ post });
+    const response = NextResponse.json({ post });
+
+    setXAccountCookie(response, published.account);
+
+    return response;
   } catch (error) {
     const status = error instanceof XApiError ? error.status : 500;
     const message =
       error instanceof Error ? error.message : "Could not publish X post.";
+    let failedPost = null;
 
     if (preparedPostId) {
       try {
         const userId = requireUserId(request);
-        await markXPostFailed({
+        failedPost = await markXPostFailed({
           errorMessage: message,
           postId: preparedPostId,
           userId
@@ -102,6 +113,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      failedPost ? { error: message, post: failedPost } : { error: message },
+      { status: failedPost ? 200 : status }
+    );
   }
 }

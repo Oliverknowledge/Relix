@@ -133,6 +133,8 @@ Devnet is hardcoded in `app/providers.tsx` with `clusterApiUrl("devnet")`. Mainn
 
 Local development writes JSON files to `data/`. Vercel writes them to `/tmp/relix-data` because the deployed app bundle is read-only.
 
+On Vercel, the encrypted connected X account is also stored in chunked HTTP-only cookies. This keeps OAuth state available across serverless cold starts for scheduling and publishing. The raw X tokens are never exposed to client JavaScript.
+
 These files are ignored by git:
 
 - `data/x-accounts.json`
@@ -141,7 +143,7 @@ These files are ignored by git:
 - `data/campaign-memory.json`
 - `data/scheduled-posts.json`
 
-The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless file-write crashes, but it is not durable storage. For a production X integration, replace the JSON store with Vercel KV, Postgres, Supabase, or another database.
+The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless file-write crashes, but it is not durable storage. For production campaign memory, post history, and team accounts, replace the JSON store with Vercel KV, Postgres, Supabase, or another database.
 
 `XAccount` stores:
 

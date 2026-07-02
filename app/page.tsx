@@ -877,7 +877,11 @@ export default function Home() {
       }
 
       setXPosts((posts) => upsertClientXPost(posts, data.post as ScheduledXPost));
-      setScheduleMessage("Published to X.");
+      setScheduleMessage(
+        data.post.status === "published"
+          ? "Published to X."
+          : data.error || "X publishing failed. Use copy or the composer link."
+      );
     } catch (error) {
       setScheduleMessage(
         error instanceof Error ? error.message : "Could not publish X post."

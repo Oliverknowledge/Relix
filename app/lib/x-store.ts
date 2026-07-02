@@ -1,6 +1,8 @@
 import { promises as fs } from "fs";
+import type { NextRequest } from "next/server";
 import { decryptString, encryptString } from "@/app/lib/crypto";
 import { dataDirectory, dataPath } from "@/app/lib/data-path";
+import { getXAccountCookie } from "@/app/lib/x-account-cookie";
 import type {
   ScheduledXPost,
   XAccount,
@@ -31,6 +33,13 @@ export async function getXAccountForUser(userId: string) {
       .filter((account) => account.userId === userId && !account.revokedAt)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null
   );
+}
+
+export async function getXAccountForRequest(
+  request: NextRequest,
+  userId: string
+) {
+  return (await getXAccountForUser(userId)) || getXAccountCookie(request, userId);
 }
 
 export async function upsertXAccount({
@@ -83,39 +92,48 @@ export async function upsertXAccount({
 export async function updateXAccountTokens({
   accessToken,
   accountId,
+  fallbackAccount,
   refreshToken,
   scopes,
   tokenExpiry
 }: {
   accessToken: string;
   accountId: string;
+  fallbackAccount?: XAccount;
   refreshToken?: string;
   scopes?: string[];
   tokenExpiry: string;
 }) {
   const accounts = await readAccounts();
   const index = accounts.findIndex((account) => account.id === accountId);
+  const baseAccount = index >= 0 ? accounts[index] : fallbackAccount;
 
-  if (index === -1) {
+  if (!baseAccount) {
     throw new Error("X account not found.");
   }
 
-  accounts[index] = {
-    ...accounts[index],
+  const updatedAccount: XAccount = {
+    ...baseAccount,
     accessToken: encryptString(accessToken),
     lastError: undefined,
     refreshToken: refreshToken
       ? encryptString(refreshToken)
-      : accounts[index].refreshToken,
+      : baseAccount.refreshToken,
     revokedAt: undefined,
-    scopes: scopes || accounts[index].scopes,
+    scopes: scopes || baseAccount.scopes,
     tokenExpiry,
     updatedAt: new Date().toISOString()
   };
 
+  if (index >= 0) {
+    accounts[index] = updatedAccount;
+  } else {
+    accounts.push(updatedAccount);
+  }
+
   await writeAccounts(accounts);
 
-  return accounts[index];
+  return updatedAccount;
 }
 
 export async function markXAccountRevoked(userId: string, message: string) {

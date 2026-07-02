@@ -149,6 +149,7 @@ export async function refreshXAccountAccess(account: XAccount) {
   const updated = await updateXAccountTokens({
     accessToken: requiredToken(token.access_token, "X access token missing."),
     accountId: account.id,
+    fallbackAccount: account,
     refreshToken: token.refresh_token,
     scopes: parseScopes(token.scope) || account.scopes,
     tokenExpiry: expiryFrom(token.expires_in)
@@ -254,6 +255,7 @@ export async function publishXPost({
 
   return {
     id: data.data.id,
+    account: refreshedAccount,
     text: data.data.text,
     url: `https://x.com/${refreshedAccount.username}/status/${data.data.id}`
   };

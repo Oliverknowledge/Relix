@@ -9,6 +9,7 @@ import {
   xConfiguration,
   xRedirectUri
 } from "@/app/lib/x-api";
+import { setXAccountCookie } from "@/app/lib/x-account-cookie";
 import { getUserId, setUserCookie } from "@/app/lib/session";
 import { upsertXAccount } from "@/app/lib/x-store";
 
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    await upsertXAccount({
+    const account = await upsertXAccount({
       accessToken: token.access_token,
       refreshToken: token.refresh_token,
       scopes,
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
     const response = NextResponse.redirect(new URL("/?x=connected", origin));
 
     setUserCookie(response, userId);
+    setXAccountCookie(response, account);
     response.cookies.delete("relix_x_state");
     response.cookies.delete("relix_x_code_verifier");
 
