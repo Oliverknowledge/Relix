@@ -1777,9 +1777,8 @@ function LaunchOpportunitySection({
   const websitePromise = websiteAnalysis?.ok
     ? websiteAnalysis.promise
     : "Website could not be analysed";
-  const analyticsLine = analyticsMetrics?.connected
-    ? analyticsMetrics.summary
-    : "Analytics not connected";
+  const analyticsLine =
+    analyticsMetrics?.summary || "Analytics not connected";
 
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center">

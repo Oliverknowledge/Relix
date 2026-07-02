@@ -89,9 +89,7 @@ export function createCampaignAssets({
     ? `The website promises "${website.promise}" for ${website.audience}. Primary CTA: ${website.primaryCta}.`
     : "Website could not be analysed.";
   const analyticsSummary =
-    analytics?.connected && analytics.summary
-      ? analytics.summary
-      : "Analytics not connected.";
+    analytics?.summary || "Analytics not connected.";
   const opportunity = `I noticed ${plainLower(
     launchChange
   )}. The website read says: ${websiteComparison.summary.toLowerCase()}. That gives new users a concrete reason to try ${productName} now.`;
