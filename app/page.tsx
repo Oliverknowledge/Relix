@@ -687,8 +687,13 @@ export default function Home() {
 
       await addLog("Reading analytics...", "active", 640);
       const nextAnalytics =
-        googleStatus.connected && selectedAnalyticsProperty
-          ? await fetchAnalyticsMetrics(selectedAnalyticsProperty)
+        googleStatus.connected
+          ? selectedAnalyticsProperty
+            ? await fetchAnalyticsMetrics(selectedAnalyticsProperty)
+            : analyticsUnavailable(
+                googleStatus.propertiesError ||
+                  "Analytics is connected, but no readable property was selected."
+              )
           : analyticsNotConnected();
 
       setAnalyticsMetrics(nextAnalytics);
@@ -1172,11 +1177,7 @@ export default function Home() {
 
       return data.metrics || analyticsNotConnected();
     } catch {
-      return {
-        ...analyticsNotConnected(),
-        error: "Analytics could not be read.",
-        summary: "Analytics could not be read"
-      };
+      return analyticsUnavailable("Analytics could not be read.");
     }
   };
 
@@ -2212,9 +2213,19 @@ function GoogleAnalyticsConnection({
         </label>
       ) : (
         <p className="text-xs leading-5 text-[#71717a]">
-          No Analytics properties found.
+          {googleStatus.propertiesError ||
+            "No readable Analytics properties found. Relix can still work from GitHub and your website."}
         </p>
       )}
+      {googleStatus.propertiesError ? (
+        <button
+          className="w-fit text-left text-xs text-[#71717a] transition hover:text-[#0a0a0a]"
+          onClick={() => void refresh()}
+          type="button"
+        >
+          Refresh Analytics
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -3349,6 +3360,16 @@ function analyticsNotConnected(): GoogleAnalyticsMetrics {
   return {
     connected: false,
     summary: "Analytics not connected",
+    topPages: [],
+    topSources: []
+  };
+}
+
+function analyticsUnavailable(message: string): GoogleAnalyticsMetrics {
+  return {
+    connected: false,
+    error: message,
+    summary: message,
     topPages: [],
     topSources: []
   };

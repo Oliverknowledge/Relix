@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  analyticsFriendlyError,
+  analyticsRequiresReconnect,
   getGoogleAnalyticsAccount,
   getValidGoogleAnalyticsAccess,
   googleAnalyticsConfiguration,
@@ -38,13 +40,15 @@ export async function GET(request: NextRequest) {
 
     return response;
   } catch (error) {
+    const reconnect = analyticsRequiresReconnect(error);
+    const message = analyticsFriendlyError(error);
+
     return NextResponse.json({
       configured: true,
-      connected: false,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Analytics connection unavailable."
+      connected: !reconnect,
+      error: message,
+      properties: [],
+      propertiesError: reconnect ? undefined : message
     });
   }
 }

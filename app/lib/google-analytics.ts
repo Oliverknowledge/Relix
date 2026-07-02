@@ -54,6 +54,7 @@ export type GoogleAnalyticsStatus = {
   error?: string;
   missing?: string[];
   properties?: GoogleAnalyticsProperty[];
+  propertiesError?: string;
 };
 
 type GoogleTokenResponse = {
@@ -285,25 +286,28 @@ export async function fetchGoogleAnalyticsMetrics({
   propertyId: string;
   propertyName?: string;
 }): Promise<GoogleAnalyticsMetrics> {
-  const [overview, sources, pages] = await Promise.all([
-    runReport(accessToken, propertyId, {
+  const overview = await runReport(accessToken, propertyId, {
+    dateRanges: [{ endDate: "today", startDate: "28daysAgo" }],
+    metrics: [
+      { name: "activeUsers" },
+      { name: "sessions" },
+      { name: "screenPageViews" },
+      { name: "engagementRate" }
+    ]
+  });
+  const [keyEvents, sources, pages] = await Promise.all([
+    safeRunReport(accessToken, propertyId, {
       dateRanges: [{ endDate: "today", startDate: "28daysAgo" }],
-      metrics: [
-        { name: "activeUsers" },
-        { name: "sessions" },
-        { name: "screenPageViews" },
-        { name: "engagementRate" },
-        { name: "conversions" }
-      ]
+      metrics: [{ name: "keyEvents" }]
     }),
-    runReport(accessToken, propertyId, {
+    safeRunReport(accessToken, propertyId, {
       dateRanges: [{ endDate: "today", startDate: "28daysAgo" }],
       dimensions: [{ name: "sessionDefaultChannelGroup" }],
       limit: "5",
       metrics: [{ name: "sessions" }],
       orderBys: [{ desc: true, metric: { metricName: "sessions" } }]
     }),
-    runReport(accessToken, propertyId, {
+    safeRunReport(accessToken, propertyId, {
       dateRanges: [{ endDate: "today", startDate: "28daysAgo" }],
       dimensions: [{ name: "pagePath" }],
       limit: "5",
@@ -316,15 +320,18 @@ export async function fetchGoogleAnalyticsMetrics({
   const sessions = numberValue(overviewValues[1]?.value);
   const pageviews = numberValue(overviewValues[2]?.value);
   const engagementRate = numberValue(overviewValues[3]?.value);
-  const conversions = numberValue(overviewValues[4]?.value);
-  const topSources = (sources.rows || []).map((row) => ({
+  const conversions = numberValue(
+    keyEvents.report?.rows?.[0]?.metricValues?.[0]?.value
+  );
+  const topSources = (sources.report?.rows || []).map((row) => ({
     name: row.dimensionValues?.[0]?.value || "Unknown",
     sessions: numberValue(row.metricValues?.[0]?.value)
   }));
-  const topPages = (pages.rows || []).map((row) => ({
+  const topPages = (pages.report?.rows || []).map((row) => ({
     path: row.dimensionValues?.[0]?.value || "/",
     views: numberValue(row.metricValues?.[0]?.value)
   }));
+  const partial = Boolean(keyEvents.error || sources.error || pages.error);
 
   return {
     connected: true,
@@ -334,7 +341,14 @@ export async function fetchGoogleAnalyticsMetrics({
     propertyId,
     propertyName,
     sessions,
-    summary: analyticsSummary({ conversions, engagementRate, sessions, topSources, users }),
+    summary: analyticsSummary({
+      conversions,
+      engagementRate,
+      partial,
+      sessions,
+      topSources,
+      users
+    }),
     topPages,
     topSources,
     users
@@ -351,13 +365,57 @@ export function analyticsNotConnected(): GoogleAnalyticsMetrics {
 }
 
 export function analyticsUnavailable(error: string): GoogleAnalyticsMetrics {
+  const friendlyError = analyticsFriendlyError(error);
+
   return {
     connected: false,
-    error,
-    summary: "Analytics could not be read",
+    error: friendlyError,
+    summary: friendlyError,
     topPages: [],
     topSources: []
   };
+}
+
+export function analyticsFriendlyError(error: unknown) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+
+  if (/invalid_grant|revoked|expired|refresh|reauthori[sz]e/i.test(message)) {
+    return "Analytics access expired. Reconnect Google Analytics.";
+  }
+
+  if (/permission|forbidden|insufficient|access|403/i.test(message)) {
+    return "Analytics is connected, but this Google account cannot read that property.";
+  }
+
+  if (/quota|rate limit|429/i.test(message)) {
+    return "Analytics is rate limited. Try again shortly.";
+  }
+
+  if (/property|properties|not found|404/i.test(message)) {
+    return "Analytics is connected, but no readable property was found.";
+  }
+
+  if (/metric|dimension|compatib/i.test(message)) {
+    return "Analytics is connected, but this property does not support one of the requested reports.";
+  }
+
+  return "Analytics is connected, but Google would not return data for this property.";
+}
+
+export function analyticsRequiresReconnect(error: unknown) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : "";
+
+  return /invalid_grant|revoked|expired|refresh|reauthori[sz]e/i.test(message);
 }
 
 export function encryptedGoogleAnalyticsAccount(account: GoogleAnalyticsAccount) {
@@ -411,27 +469,47 @@ async function runReport(
   return data;
 }
 
+async function safeRunReport(
+  accessToken: string,
+  propertyId: string,
+  body: Record<string, unknown>
+) {
+  try {
+    return {
+      report: await runReport(accessToken, propertyId, body)
+    };
+  } catch (error) {
+    return {
+      error: analyticsFriendlyError(error)
+    };
+  }
+}
+
 function analyticsSummary({
   conversions,
   engagementRate,
+  partial,
   sessions,
   topSources,
   users
 }: {
   conversions: number;
   engagementRate: number;
+  partial: boolean;
   sessions: number;
   topSources: AnalyticsTrafficSource[];
   users: number;
 }) {
   const source = topSources[0]?.name;
-  const conversionLine = conversions > 0 ? `${conversions} conversions` : "no conversion events found";
+  const conversionLine =
+    conversions > 0 ? `${conversions} key events` : "no key events found";
   const engagementLine =
     engagementRate > 0 ? `${Math.round(engagementRate * 100)}% engagement rate` : "engagement unavailable";
+  const partialLine = partial ? " Some optional Analytics details were unavailable." : "";
 
   return `${users} users and ${sessions} sessions in the last 28 days. Top source: ${
     source || "unknown"
-  }. ${conversionLine}; ${engagementLine}.`;
+  }. ${conversionLine}; ${engagementLine}.${partialLine}`;
 }
 
 function numberValue(value?: string) {

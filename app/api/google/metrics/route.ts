@@ -26,22 +26,48 @@ export async function GET(request: NextRequest) {
   try {
     const { accessToken, account: currentAccount } =
       await getValidGoogleAnalyticsAccess(account);
-    const properties = await listGoogleAnalyticsProperties(accessToken);
     const requestedProperty = request.nextUrl.searchParams.get("propertyId");
-    const property =
-      properties.find((candidate) => candidate.propertyId === requestedProperty) ||
-      properties[0];
+    let propertyId = requestedProperty || "";
+    let propertyName: string | undefined;
 
-    if (!property) {
-      return NextResponse.json({
+    try {
+      const properties = await listGoogleAnalyticsProperties(accessToken);
+      const property =
+        properties.find((candidate) => candidate.propertyId === requestedProperty) ||
+        properties[0];
+
+      propertyId = propertyId || property?.propertyId || "";
+      propertyName = property?.displayName;
+    } catch (error) {
+      if (!propertyId) {
+        const response = NextResponse.json({
+          metrics: analyticsUnavailable(
+            error instanceof Error
+              ? error.message
+              : "Analytics properties could not be read."
+          )
+        });
+
+        setGoogleAnalyticsAccountCookie(response, currentAccount);
+
+        return response;
+      }
+    }
+
+    if (!propertyId) {
+      const response = NextResponse.json({
         metrics: analyticsUnavailable("No Analytics properties found.")
       });
+
+      setGoogleAnalyticsAccountCookie(response, currentAccount);
+
+      return response;
     }
 
     const metrics = await fetchGoogleAnalyticsMetrics({
       accessToken,
-      propertyId: property.propertyId,
-      propertyName: property.displayName
+      propertyId,
+      propertyName
     });
     const response = NextResponse.json({ metrics });
 
