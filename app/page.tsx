@@ -53,6 +53,7 @@ import {
   type GrowthEmployeeWork
 } from "@/app/lib/growth-employee";
 import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
+import { getSpecialistAgent } from "@/app/lib/specialist-agents";
 import type { RepositoryAnalysis } from "@/app/lib/repository-analysis";
 import { analyzeRepository } from "@/app/lib/repository-analysis";
 import {
@@ -754,7 +755,10 @@ export default function Home() {
         "done"
       );
       await addLog("Searching marketplace...", "active", 680);
-      await addLog("4 specialists found", "done");
+      await addLog(
+        `${nextCampaign.bids.length} specialists found`,
+        "done"
+      );
       await addLog("Requesting bids...", "active", 760);
 
       for (let index = 0; index < nextCampaign.bids.length; index += 1) {
@@ -1603,7 +1607,7 @@ function GuidedResultFlow({
           title="Setup complete"
         />
         <CollapsedStep
-          detail={`${repositoryContext.commits.length} commits analysed · 4 specialists responded`}
+          detail={`${repositoryContext.commits.length} commits analysed · ${campaign.bids.length} specialists responded`}
           title="Employee finished the first pass"
         />
         {position > 0 ? (
@@ -1867,11 +1871,12 @@ function SpecialistSelectionSection({
     <section className="mx-auto max-w-3xl">
       <SectionHeading
         kicker="Specialist marketplace"
-        title="The employee compared four specialists."
+        title={`Marketplace received ${campaign.bids.length} bids.`}
       />
 
       <div className="mt-8 grid gap-3">
         {campaign.bids.map((bid) => {
+          const agent = getSpecialistAgent(bid.id);
           const selected = bid.id === campaign.winningBid.id;
 
           return (
@@ -1885,9 +1890,21 @@ function SpecialistSelectionSection({
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-semibold tracking-[-0.02em]">
-                    {specialistDisplayName(bid)}
-                  </h3>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <h3 className="text-lg font-semibold tracking-[-0.02em]">
+                      {specialistDisplayName(bid)}
+                    </h3>
+                    <span className="text-xs text-[#a1a1aa]">
+                      v{agent.version}
+                    </span>
+                  </div>
+                  <p
+                    className={`mt-1 text-xs ${
+                      selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                    }`}
+                  >
+                    {agent.ownerName} · {shortAddress(agent.ownerWallet)}
+                  </p>
                   <p
                     className={`mt-2 max-w-xl text-sm leading-6 ${
                       selected ? "text-[#d4d4d8]" : "text-[#52525b]"
@@ -1895,6 +1912,20 @@ function SpecialistSelectionSection({
                   >
                     {bid.action}
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {agent.capabilities.map((capability) => (
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          selected
+                            ? "bg-white/10 text-[#e4e4e7]"
+                            : "bg-white text-[#52525b]"
+                        }`}
+                        key={capability}
+                      >
+                        {capability}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div
                   className={`flex shrink-0 gap-2 text-xs ${

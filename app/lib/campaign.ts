@@ -1,5 +1,5 @@
 import {
-  specialistWallets,
+  listActiveSpecialistAgents,
   type SpecialistId
 } from "@/app/lib/specialist-agents";
 
@@ -105,95 +105,107 @@ function normalizeRequest(request: FounderRequest): FounderRequest {
   };
 }
 
+type SpecialistPitch = {
+  action: string;
+  budgetShare: number;
+  deliverables: string[];
+  differentiation: string;
+  reasoning: string;
+  service: string;
+};
+
+const specialistPitches: Record<SpecialistId, SpecialistPitch> = {
+  "creator-outreach": {
+    service: "Creator playtest sprint",
+    action:
+      "Turns a visible product update into a creator brief, playtest angle, and approved outreach list.",
+    budgetShare: 0.32,
+    reasoning:
+      "Strong when the product needs proof from gameplay clips before a broader launch.",
+    differentiation:
+      "Best for visual proof. Slower than an event when the goal needs urgency.",
+    deliverables: [
+      "Creator brief",
+      "Founder-approved outreach angle",
+      "Playtest schedule"
+    ]
+  },
+  tournament: {
+    service: "Launch tournament",
+    action:
+      "Packages the latest product change into a time-boxed event with launch copy, rules, and a handoff plan.",
+    budgetShare: 0.38,
+    reasoning:
+      "Best when the repository shows a recent improvement that new users should experience immediately.",
+    differentiation:
+      "Creates urgency, a reason to try the update, and a clean campaign handoff.",
+    deliverables: [
+      "Tournament framing",
+      "Launch thread",
+      "Founder reply pack"
+    ]
+  },
+  referral: {
+    service: "Referral loop",
+    action:
+      "Prepares a simple invite loop for early users once the first launch beat creates attention.",
+    budgetShare: 0.26,
+    reasoning:
+      "Useful after a seed audience exists. Weaker as the first move for a fresh product update.",
+    differentiation:
+      "Best for compounding attention after the initial launch moment.",
+    deliverables: [
+      "Invite framing",
+      "Reward ladder",
+      "Abuse review checklist"
+    ]
+  },
+  community: {
+    service: "Community launch kit",
+    action:
+      "Prepares founder-led community copy, moderator notes, and response prompts for the launch window.",
+    budgetShare: 0.24,
+    reasoning:
+      "Good for trust and founder presence. Less direct than a focused launch event.",
+    differentiation:
+      "Best for calm founder communication around a new product change.",
+    deliverables: [
+      "Community brief",
+      "Moderator notes",
+      "Founder response prompts"
+    ]
+  }
+};
+
 function createSpecialistBids(
   request: FounderRequest,
   daysRemaining: number
 ): Bid[] {
   const budget = request.budgetSol;
   const deadlineIsClose = daysRemaining <= 14;
-  const bids: Array<Omit<Bid, "score">> = [
-    {
-      id: "creator-outreach",
-      agentName: "Creator Outreach Agent",
-      agentWallet: specialistWallets["creator-outreach"],
-      service: "Creator playtest sprint",
-      action:
-        "Turns a visible product update into a creator brief, playtest angle, and approved outreach list.",
-      priceSol: priceFromBudget(budget, 0.32, 0.55),
-      reasoning:
-        "Strong when the product needs proof from gameplay clips before a broader launch.",
-      differentiation:
-        "Best for visual proof. Slower than an event when the goal needs urgency.",
-      deliverables: [
-        "Creator brief",
-        "Founder-approved outreach angle",
-        "Playtest schedule"
-      ],
-      timeline: "4 days"
-    },
-    {
-      id: "tournament",
-      agentName: "Tournament Agent",
-      agentWallet: specialistWallets.tournament,
-      service: "Launch tournament",
-      action:
-        "Packages the latest product change into a time-boxed event with launch copy, rules, and a handoff plan.",
-      priceSol: priceFromBudget(budget, 0.38, 0.75),
-      reasoning:
-        "Best when the repository shows a recent improvement that new users should experience immediately.",
-      differentiation:
-        "Creates urgency, a reason to try the update, and a clean campaign handoff.",
-      deliverables: [
-        "Tournament framing",
-        "Launch thread",
-        "Founder reply pack"
-      ],
-      timeline: "5 days"
-    },
-    {
-      id: "referral",
-      agentName: "Referral Campaign Agent",
-      agentWallet: specialistWallets.referral,
-      service: "Referral loop",
-      action:
-        "Prepares a simple invite loop for early users once the first launch beat creates attention.",
-      priceSol: priceFromBudget(budget, 0.26, 0.42),
-      reasoning:
-        "Useful after a seed audience exists. Weaker as the first move for a fresh product update.",
-      differentiation:
-        "Best for compounding attention after the initial launch moment.",
-      deliverables: [
-        "Invite framing",
-        "Reward ladder",
-        "Abuse review checklist"
-      ],
-      timeline: "3 days"
-    },
-    {
-      id: "community",
-      agentName: "Community Launch Agent",
-      agentWallet: specialistWallets.community,
-      service: "Community launch kit",
-      action:
-        "Prepares founder-led community copy, moderator notes, and response prompts for the launch window.",
-      priceSol: priceFromBudget(budget, 0.24, 0.35),
-      reasoning:
-        "Good for trust and founder presence. Less direct than a focused launch event.",
-      differentiation:
-        "Best for calm founder communication around a new product change.",
-      deliverables: [
-        "Community brief",
-        "Moderator notes",
-        "Founder response prompts"
-      ],
-      timeline: "4 days"
-    }
-  ];
 
-  return bids.map((bid) => ({
-    ...bid,
-    score: bid.id === "tournament" ? (deadlineIsClose ? 4 : 3.8) : baseFit(bid.id)
-  }));
+  return listActiveSpecialistAgents().map((agent) => {
+    const pitch = specialistPitches[agent.id];
+
+    return {
+      action: pitch.action,
+      agentName: agent.name,
+      agentWallet: agent.ownerWallet,
+      deliverables: pitch.deliverables,
+      differentiation: pitch.differentiation,
+      id: agent.id,
+      priceSol: priceFromBudget(budget, pitch.budgetShare, agent.basePriceSol),
+      reasoning: pitch.reasoning,
+      score:
+        agent.id === "tournament"
+          ? deadlineIsClose
+            ? 4
+            : 3.8
+          : baseFit(agent.id),
+      service: pitch.service,
+      timeline: `${agent.deliveryDays} ${agent.deliveryDays === 1 ? "day" : "days"}`
+    };
+  });
 }
 
 function selectWinningBid(bids: Bid[], request: FounderRequest) {
