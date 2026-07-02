@@ -45,6 +45,10 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+## Agent Workflow
+
+After any requested change to this repository, commit the change and push it to GitHub before ending the task. Keep commits focused, and never commit secrets, local data files, build output, or dependency folders.
+
 ## Environment
 
 Create `.env.local`:
