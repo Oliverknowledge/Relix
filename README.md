@@ -19,7 +19,7 @@ Nothing is posted without explicit founder approval.
 
 ## What Is Real
 
-- Phantom/Solflare wallet connection on Solana devnet.
+- Phantom wallet connection on Solana devnet.
 - Devnet balance reads and optional devnet airdrop.
 - Real devnet transfer when payment is released.
 - GitHub OAuth and GitHub API repository reads.
@@ -107,7 +107,7 @@ Scheduled publishing is processed when `/api/x/posts?publishDue=true` is called.
 
 Devnet is hardcoded in `app/providers.tsx` with `clusterApiUrl("devnet")`. Mainnet is not used.
 
-1. Connect Phantom or Solflare on devnet.
+1. Connect Phantom on devnet.
 2. Use `Get devnet SOL` or the Solana faucet if the balance is low.
 3. Hire the employee.
 4. Review the specialist delivery.

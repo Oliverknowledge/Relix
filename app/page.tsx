@@ -106,6 +106,7 @@ const emptyXStatus: XConnectionStatus = {
   configured: false,
   connected: false
 };
+const PHANTOM_DOWNLOAD_URL = "https://phantom.com/download";
 
 export default function Home() {
   const isClient = useSyncExternalStore(
@@ -1200,9 +1201,13 @@ function WalletStrip({
   selectWallet: (walletName: WalletName) => void;
   wallets: Wallet[];
 }) {
-  const supportedWallets = wallets.filter(({ adapter }) =>
-    ["Phantom", "Solflare"].includes(String(adapter.name))
+  const phantomWallet = wallets.find(
+    ({ adapter }) => String(adapter.name) === "Phantom"
   );
+  const phantomReadyState = phantomWallet?.adapter.readyState;
+  const canConnectPhantom =
+    phantomReadyState === WalletReadyState.Installed ||
+    phantomReadyState === WalletReadyState.Loadable;
   const balanceIsLow =
     connected && balanceSol !== null && balanceSol < LOW_BALANCE_SOL;
 
@@ -1225,38 +1230,24 @@ function WalletStrip({
         </div>
       ) : (
         <div className="inline-flex flex-wrap justify-end gap-2">
-          {supportedWallets.length > 0 ? (
-            supportedWallets.map(({ adapter, readyState }) => {
-              const canConnect =
-                readyState === WalletReadyState.Installed ||
-                readyState === WalletReadyState.Loadable;
-
-              return canConnect ? (
-                <button
-                  className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
-                  disabled={connecting}
-                  key={String(adapter.name)}
-                  onClick={() => selectWallet(adapter.name)}
-                  type="button"
-                >
-                  {connecting ? "Connecting..." : `Connect ${String(adapter.name)}`}
-                </button>
-              ) : (
-                <a
-                  className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs font-medium text-[#52525b] shadow-sm backdrop-blur transition hover:border-[#0a0a0a] hover:text-[#0a0a0a]"
-                  href={adapter.url}
-                  key={String(adapter.name)}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Get {String(adapter.name)}
-                </a>
-              );
-            })
+          {phantomWallet && canConnectPhantom ? (
+            <button
+              className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
+              disabled={connecting}
+              onClick={() => selectWallet(phantomWallet.adapter.name)}
+              type="button"
+            >
+              {connecting ? "Connecting..." : "Connect Phantom"}
+            </button>
           ) : (
-            <span className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs text-[#71717a] shadow-sm backdrop-blur">
-              No wallet detected
-            </span>
+            <a
+              className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
+              href={PHANTOM_DOWNLOAD_URL}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Get Phantom
+            </a>
           )}
         </div>
       )}
