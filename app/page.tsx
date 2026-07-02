@@ -53,7 +53,10 @@ import {
   type GrowthEmployeeWork
 } from "@/app/lib/growth-employee";
 import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
-import { getSpecialistAgent } from "@/app/lib/specialist-agents";
+import {
+  getSpecialistAgent,
+  type SpecialistDelivery
+} from "@/app/lib/specialist-agents";
 import type { RepositoryAnalysis } from "@/app/lib/repository-analysis";
 import { analyzeRepository } from "@/app/lib/repository-analysis";
 import {
@@ -202,6 +205,8 @@ export default function Home() {
   );
   const [campaignAssets, setCampaignAssets] =
     useState<GrowthCampaignAssets | null>(null);
+  const [specialistDelivery, setSpecialistDelivery] =
+    useState<SpecialistDelivery | null>(null);
   const [growthWork, setGrowthWork] = useState<GrowthEmployeeWork | null>(null);
   const [xStatus, setXStatus] = useState<XConnectionStatus>(emptyXStatus);
   const [workLog, setWorkLog] = useState<WorkLogEntry[]>([]);
@@ -496,6 +501,7 @@ export default function Home() {
     }
 
     const winningBid = campaign.winningBid;
+    const winnerAgent = getSpecialistAgent(winningBid.specialistId);
     const settlementSol = settlementAmountFor(winningBid.priceSol);
     const settlementLamports = Math.round(settlementSol * LAMPORTS_PER_SOL);
 
@@ -530,7 +536,7 @@ export default function Home() {
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(winningBid.agentWallet),
+          toPubkey: new PublicKey(winnerAgent.ownerWallet),
           lamports: settlementLamports
         })
       );
@@ -557,12 +563,12 @@ export default function Home() {
         mode: "devnet-transfer",
         status: "confirmed",
         campaignId: campaign.id,
-        winnerAgent: winningBid.agentName,
+        winnerAgent: winnerAgent.name,
         signature,
         explorerUrl: explorerUrl(signature),
         contractAmountSol: winningBid.priceSol,
         settlementSol,
-        agentWallet: winningBid.agentWallet,
+        agentWallet: winnerAgent.ownerWallet,
         founderWallet: publicKey.toBase58(),
         slot
       };
@@ -620,6 +626,7 @@ export default function Home() {
     setRepositoryAnalysis(null);
     setCampaignMemory([]);
     setCampaignAssets(null);
+    setSpecialistDelivery(null);
     setGrowthWork(null);
     setXDrafts({});
     setXPosts([]);
@@ -713,13 +720,19 @@ export default function Home() {
           defaultFounderRequest.description,
         gameName: humanizeName(context.name)
       };
-      const nextCampaign = createCampaignPlan(nextRequest);
+      const nextCampaign = createCampaignPlan(nextRequest, {
+        analytics: nextAnalytics,
+        github: context,
+        website: nextWebsite
+      });
       const nextAssets = createCampaignAssets({
         analytics: nextAnalytics,
         github: context,
-        goal: nextRequest.goal,
         website: nextWebsite
       });
+      const nextDelivery = getSpecialistAgent(
+        nextCampaign.winningBid.specialistId
+      ).deliver(nextCampaign.jobContext);
       const nextAnalysis = analyzeRepository(context);
       const previousCampaigns = await loadCampaignMemory(context.fullName);
       const nextWork = createGrowthEmployeeWork({
@@ -732,10 +745,11 @@ export default function Home() {
       activeCampaignId = nextCampaign.id;
       setCampaign(nextCampaign);
       setCampaignAssets(nextAssets);
+      setSpecialistDelivery(nextDelivery);
       setRepositoryAnalysis(nextAnalysis);
       setCampaignMemory(previousCampaigns);
       setGrowthWork(nextWork);
-      setXDrafts(draftsFromAssets(nextAssets));
+      setXDrafts(draftsFromDelivery(nextDelivery));
       await loadXPosts(nextCampaign.id, true);
       void saveActivity(nextCampaign.id, context.fullName, pendingActivity);
 
@@ -756,21 +770,30 @@ export default function Home() {
       );
       await addLog("Searching marketplace...", "active", 680);
       await addLog(
-        `${nextCampaign.bids.length} specialists found`,
+        `${nextCampaign.bids.length} seller agents found`,
         "done"
       );
       await addLog("Requesting bids...", "active", 760);
 
       for (let index = 0; index < nextCampaign.bids.length; index += 1) {
+        const bid = nextCampaign.bids[index];
+
         await sleep(360);
         await addLog(
-          `${specialistDisplayName(nextCampaign.bids[index])} responded`,
+          `${specialistDisplayName(bid)} bid ${formatSol(bid.priceSol)} · ${
+            bid.deliveryDays
+          } days`,
           "done",
           320
         );
       }
 
-      await addLog("Evaluating expected outcomes...", "active", 760);
+      await addLog(
+        `${nextCampaign.bids.length} seller agents submitted bids`,
+        "done",
+        360
+      );
+      await addLog("Comparing budget, goal, repo fit and delivery...", "active", 760);
       await addLog(
         `${specialistDisplayName(nextCampaign.winningBid)} selected`,
         "done"
@@ -819,15 +842,17 @@ export default function Home() {
   };
 
   const draftPosts = () => {
-    if (!campaignAssets) {
+    if (!specialistDelivery) {
       return [];
     }
 
-    return campaignAssets.launchThread.map((post, index) => ({
-      label: post.label,
-      sourceId: `thread-${index}`,
-      text: xDrafts[`thread-${index}`] ?? post.text
-    }));
+    return deliveryBlocksFrom(specialistDelivery)
+      .filter((block) => block.section === "Launch Thread")
+      .map((block) => ({
+        label: block.label,
+        sourceId: block.id,
+        text: xDrafts[block.id] ?? block.text
+      }));
   };
 
   const saveXPostDrafts = async () => {
@@ -1196,7 +1221,7 @@ export default function Home() {
       campaign_id: campaign.id,
       campaign_outcome: "Campaign assets delivered; publishing remains manual.",
       created_at: new Date().toISOString(),
-      delivery: "Launch thread, launch note, founder replies, and follow-up campaign.",
+      delivery: campaign.winningBid.deliverables.join(", "),
       goal: campaign.request.goal,
       id: `${campaign.id}-${paymentResult.signature}`,
       payment: {
@@ -1275,6 +1300,7 @@ export default function Home() {
       {hasRun &&
       githubContext &&
       campaignAssets &&
+      specialistDelivery &&
       repositoryAnalysis &&
       growthWork &&
       activeStage !== "working" ? (
@@ -1286,6 +1312,7 @@ export default function Home() {
           campaign={campaign}
           connected={connected}
           copiedAssetId={copiedAssetId}
+          delivery={specialistDelivery}
           editingAssetId={editingAssetId}
           error={releaseError}
           isExecutingWork={isExecutingWork}
@@ -1513,6 +1540,7 @@ function GuidedResultFlow({
   campaign,
   connected,
   copiedAssetId,
+  delivery,
   editingAssetId,
   error,
   isExecutingWork,
@@ -1553,6 +1581,7 @@ function GuidedResultFlow({
   campaign: CampaignPlan;
   connected: boolean;
   copiedAssetId: string | null;
+  delivery: SpecialistDelivery;
   editingAssetId: string | null;
   error: string | null;
   isExecutingWork: boolean;
@@ -1607,7 +1636,7 @@ function GuidedResultFlow({
           title="Setup complete"
         />
         <CollapsedStep
-          detail={`${repositoryContext.commits.length} commits analysed · ${campaign.bids.length} specialists responded`}
+          detail={`${repositoryContext.commits.length} commits analysed · ${campaign.bids.length} seller agents submitted bids`}
           title="Employee finished the first pass"
         />
         {position > 0 ? (
@@ -1622,15 +1651,15 @@ function GuidedResultFlow({
             detail={`${specialistDisplayName(
               campaign.winningBid
             )} · ${formatSol(campaign.winningBid.priceSol)} · ${
-              campaign.winningBid.timeline
-            }`}
+              campaign.winningBid.deliveryDays
+            } days`}
             onOpen={() => setActiveStage("specialist")}
             title="Specialist selected"
           />
         ) : null}
         {position > 2 ? (
           <CollapsedStep
-            detail="Launch thread, launch note, replies, and follow-up are ready"
+            detail={`${campaign.winningBid.deliverables.join(", ")} are ready`}
             onOpen={() => setActiveStage("delivery")}
             title="Campaign assets delivered"
           />
@@ -1659,7 +1688,6 @@ function GuidedResultFlow({
 
         {activeStage === "specialist" ? (
           <SpecialistSelectionSection
-            assets={assets}
             campaign={campaign}
             memory={memory}
             setActiveStage={setActiveStage}
@@ -1671,6 +1699,7 @@ function GuidedResultFlow({
             assets={assets}
             campaign={campaign}
             copiedAssetId={copiedAssetId}
+            delivery={delivery}
             editingAssetId={editingAssetId}
             isSavingDrafts={isSavingDrafts}
             isScheduling={isScheduling}
@@ -1855,28 +1884,27 @@ function LaunchOpportunitySection({
 }
 
 function SpecialistSelectionSection({
-  assets,
   campaign,
   memory,
   setActiveStage
 }: {
-  assets: GrowthCampaignAssets;
   campaign: CampaignPlan;
   memory: CampaignMemoryRecord[];
   setActiveStage: (stage: FlowStage) => void;
 }) {
   const previousCampaign = memory[0];
+  const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
 
   return (
     <section className="mx-auto max-w-3xl">
       <SectionHeading
         kicker="Specialist marketplace"
-        title={`Marketplace received ${campaign.bids.length} bids.`}
+        title={`${campaign.bids.length} seller agents submitted bids.`}
       />
 
       <div className="mt-8 grid gap-3">
         {campaign.bids.map((bid) => {
-          const agent = getSpecialistAgent(bid.id);
+          const agent = getSpecialistAgent(bid.specialistId);
           const selected = bid.id === campaign.winningBid.id;
 
           return (
@@ -1892,7 +1920,7 @@ function SpecialistSelectionSection({
                 <div>
                   <div className="flex flex-wrap items-baseline gap-2">
                     <h3 className="text-lg font-semibold tracking-[-0.02em]">
-                      {specialistDisplayName(bid)}
+                      {agent.name}
                     </h3>
                     <span className="text-xs text-[#a1a1aa]">
                       v{agent.version}
@@ -1910,7 +1938,7 @@ function SpecialistSelectionSection({
                       selected ? "text-[#d4d4d8]" : "text-[#52525b]"
                     }`}
                   >
-                    {bid.action}
+                    {selected ? bid.reasoning : firstSentence(bid.reasoning)}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {agent.capabilities.map((capability) => (
@@ -1934,14 +1962,14 @@ function SpecialistSelectionSection({
                 >
                   <span>{formatSol(bid.priceSol)}</span>
                   <span>·</span>
-                  <span>{bid.timeline}</span>
+                  <span>{bid.deliveryDays} days</span>
                 </div>
               </div>
 
               {selected ? (
                 <div className="mt-5 grid gap-3 border-t border-white/15 pt-5 text-sm leading-6 text-[#e4e4e7]">
-                  <p>{bidRepositoryReason(bid, assets)}</p>
-                  <p>{bid.differentiation}</p>
+                  <p>Deliverables: {bid.deliverables.join(" · ")}</p>
+                  <p>Risk: {bid.risk}</p>
                 </div>
               ) : null}
             </article>
@@ -1954,12 +1982,13 @@ function SpecialistSelectionSection({
           Why this specialist?
         </p>
         <p className="mt-4 text-xl leading-8 tracking-[-0.02em] text-[#27272a]">
-          I selected {specialistDisplayName(campaign.winningBid)} because your
-          latest repository work points to {assets.productArea}, your website
-          read says {assets.websiteComparison.summary.toLowerCase()}, and your
-          budget is {formatSol(campaign.request.budgetSol)}.
+          {campaign.selection.reason}
         </p>
         <p className="mt-4 text-sm leading-6 text-[#52525b]">
+          Seller: {winnerAgent.ownerName} · {shortAddress(winnerAgent.ownerWallet)}{" "}
+          · v{winnerAgent.version}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-[#52525b]">
           {campaign.budgetStatus.message}
         </p>
         <p className="mt-4 text-sm leading-6 text-[#71717a]">
@@ -2426,6 +2455,7 @@ function SpecialistDeliverySection({
   assets,
   campaign,
   copiedAssetId,
+  delivery,
   editingAssetId,
   isSavingDrafts,
   isScheduling,
@@ -2450,6 +2480,7 @@ function SpecialistDeliverySection({
   assets: GrowthCampaignAssets;
   campaign: CampaignPlan;
   copiedAssetId: string | null;
+  delivery: SpecialistDelivery;
   editingAssetId: string | null;
   isSavingDrafts: boolean;
   isScheduling: boolean;
@@ -2480,7 +2511,10 @@ function SpecialistDeliverySection({
   xPosts: ScheduledXPost[];
   xStatus: XConnectionStatus;
 }) {
-  const blocks = deliveryAssetBlocks(assets);
+  const blocks = deliveryBlocksFrom(delivery);
+  const hasLaunchThread = blocks.some(
+    (block) => block.section === "Launch Thread"
+  );
   const connectedLabel = xStatus.account
     ? `Connected as @${xStatus.account.username}`
     : "Connect X to schedule or publish.";
@@ -2497,7 +2531,7 @@ function SpecialistDeliverySection({
       <div className="mt-8 grid gap-8">
         <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
           <p className="max-w-2xl text-lg leading-8 text-[#27272a]">
-            {assets.specialistReport}
+            {delivery.report}
           </p>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
             Source: {assets.repository}. {assets.sourceSummary}
@@ -2520,7 +2554,7 @@ function SpecialistDeliverySection({
             />
             <button
               className="rounded-full border hairline bg-white px-4 py-2.5 text-sm font-medium text-[#27272a] transition hover:border-[#0a0a0a] disabled:opacity-50"
-              disabled={!xStatus.connected || isSavingDrafts}
+              disabled={!xStatus.connected || isSavingDrafts || !hasLaunchThread}
               onClick={() => void onSaveDrafts()}
               type="button"
             >
@@ -2528,7 +2562,7 @@ function SpecialistDeliverySection({
             </button>
             <button
               className="rounded-full bg-[#0a0a0a] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-              disabled={!xStatus.connected || isScheduling}
+              disabled={!xStatus.connected || isScheduling || !hasLaunchThread}
               onClick={() => void onSchedule()}
               type="button"
             >
@@ -2537,69 +2571,24 @@ function SpecialistDeliverySection({
           </div>
         </div>
 
-        <AssetGroup
-          blocks={blocks.filter((block) => block.section === "Launch Thread")}
-          copiedAssetId={copiedAssetId}
-          editingAssetId={editingAssetId}
-          isScheduling={isScheduling}
-          onCopyAsset={onCopyAsset}
-          onEditAsset={onEditAsset}
-          onPublishNow={onPublishNow}
-          onScheduleOne={onScheduleOne}
-          publishingPostId={publishingPostId}
-          setXDraftText={setXDraftText}
-          title="Launch Thread"
-          xDrafts={xDrafts}
-          xStatus={xStatus}
-        />
-
-        <AssetGroup
-          blocks={blocks.filter((block) => block.section === "Launch Note")}
-          copiedAssetId={copiedAssetId}
-          editingAssetId={editingAssetId}
-          isScheduling={isScheduling}
-          onCopyAsset={onCopyAsset}
-          onEditAsset={onEditAsset}
-          onPublishNow={onPublishNow}
-          onScheduleOne={onScheduleOne}
-          publishingPostId={publishingPostId}
-          setXDraftText={setXDraftText}
-          title="Launch Note"
-          xDrafts={xDrafts}
-          xStatus={xStatus}
-        />
-
-        <AssetGroup
-          blocks={blocks.filter((block) => block.section === "Founder Replies")}
-          copiedAssetId={copiedAssetId}
-          editingAssetId={editingAssetId}
-          isScheduling={isScheduling}
-          onCopyAsset={onCopyAsset}
-          onEditAsset={onEditAsset}
-          onPublishNow={onPublishNow}
-          onScheduleOne={onScheduleOne}
-          publishingPostId={publishingPostId}
-          setXDraftText={setXDraftText}
-          title="Founder Replies"
-          xDrafts={xDrafts}
-          xStatus={xStatus}
-        />
-
-        <AssetGroup
-          blocks={blocks.filter((block) => block.section === "Follow-up Campaign")}
-          copiedAssetId={copiedAssetId}
-          editingAssetId={editingAssetId}
-          isScheduling={isScheduling}
-          onCopyAsset={onCopyAsset}
-          onEditAsset={onEditAsset}
-          onPublishNow={onPublishNow}
-          onScheduleOne={onScheduleOne}
-          publishingPostId={publishingPostId}
-          setXDraftText={setXDraftText}
-          title="Follow-up Campaign"
-          xDrafts={xDrafts}
-          xStatus={xStatus}
-        />
+        {delivery.sections.map((section) => (
+          <AssetGroup
+            blocks={blocks.filter((block) => block.section === section.title)}
+            copiedAssetId={copiedAssetId}
+            editingAssetId={editingAssetId}
+            isScheduling={isScheduling}
+            key={section.id}
+            onCopyAsset={onCopyAsset}
+            onEditAsset={onEditAsset}
+            onPublishNow={onPublishNow}
+            onScheduleOne={onScheduleOne}
+            publishingPostId={publishingPostId}
+            setXDraftText={setXDraftText}
+            title={section.title}
+            xDrafts={xDrafts}
+            xStatus={xStatus}
+          />
+        ))}
 
         {scheduleMessage ? (
           <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
@@ -2882,6 +2871,7 @@ function EscrowSection({
   releaseStatus: ReleaseStatus;
   onRelease: () => Promise<void>;
 }) {
+  const winnerAgent = getSpecialistAgent(winningBid.specialistId);
   const settlementSol = settlementAmountFor(winningBid.priceSol);
   const remainingBudgetAfterPayment = payment
     ? budgetStatus.remainingBudgetSol
@@ -2987,11 +2977,11 @@ function EscrowSection({
           <div className="mt-2 grid gap-4">
             <div className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm text-[#52525b]">
               <p>
-                {formatSol(settlementSol)} will move to{" "}
-                {specialistDisplayName(winningBid)}.
+                {formatSol(settlementSol)} will move to {winnerAgent.name},
+                owned by {winnerAgent.ownerName}.
               </p>
               <p className="mt-2 break-all text-xs text-[#71717a]">
-                {winningBid.agentWallet}
+                {winnerAgent.ownerWallet}
               </p>
             </div>
             <button
@@ -3206,24 +3196,14 @@ function ProofRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function specialistDisplayName(bid: Pick<Bid, "id" | "agentName">) {
-  if (bid.id === "tournament") {
-    return "Tournament Specialist";
-  }
+function specialistDisplayName(bid: Pick<Bid, "specialistId">) {
+  return getSpecialistAgent(bid.specialistId).name;
+}
 
-  if (bid.id === "creator-outreach") {
-    return "Creator Outreach Specialist";
-  }
+function firstSentence(text: string) {
+  const match = text.match(/^[^.!?]*[.!?]/);
 
-  if (bid.id === "referral") {
-    return "Referral Specialist";
-  }
-
-  if (bid.id === "community") {
-    return "Community Launch Specialist";
-  }
-
-  return bid.agentName.replace("Agent", "Specialist");
+  return match ? match[0].trim() : text;
 }
 
 function flowStagePosition(stage: FlowStage) {
@@ -3236,22 +3216,6 @@ function flowStagePosition(stage: FlowStage) {
   ];
 
   return order.indexOf(stage);
-}
-
-function bidRepositoryReason(bid: Bid, assets: GrowthCampaignAssets) {
-  if (bid.id === "tournament") {
-    return `Best fit for ${assets.productArea}. The repository shows a fresh product change, and an event gives new users a reason to try it now.`;
-  }
-
-  if (bid.id === "creator-outreach") {
-    return `Useful if ${assets.productName} needs proof from gameplay clips, but creator outreach is slower than a launch event.`;
-  }
-
-  if (bid.id === "referral") {
-    return `Efficient after a seed audience exists. For this repository signal, it should follow the first launch beat.`;
-  }
-
-  return `Good for trust and founder presence, but less direct than turning ${assets.opportunityLabel.toLowerCase()} into a live launch moment.`;
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -3328,44 +3292,26 @@ function defaultScheduleInput() {
   return local.toISOString().slice(0, 16);
 }
 
-function draftsFromAssets(assets: GrowthCampaignAssets) {
-  return deliveryAssetBlocks(assets).reduce<Record<string, string>>((drafts, block) => {
-    drafts[block.id] = block.text;
-    return drafts;
-  }, {});
+function draftsFromDelivery(delivery: SpecialistDelivery) {
+  return deliveryBlocksFrom(delivery).reduce<Record<string, string>>(
+    (drafts, block) => {
+      drafts[block.id] = block.text;
+      return drafts;
+    },
+    {}
+  );
 }
 
-function deliveryAssetBlocks(assets: GrowthCampaignAssets): DeliveryAssetBlock[] {
-  return [
-    ...assets.launchThread.map((post, index) => ({
-      id: `thread-${index}`,
-      kind: "tweet" as const,
-      label: post.label,
-      section: "Launch Thread",
-      text: post.text
-    })),
-    {
-      id: "launch-note",
-      kind: "note" as const,
-      label: "Launch note",
-      section: "Launch Note",
-      text: assets.launchNote
-    },
-    ...assets.founderReplies.map((reply, index) => ({
-      id: `reply-${index}`,
-      kind: "reply" as const,
-      label: reply.prompt,
-      section: "Founder Replies",
-      text: reply.text
-    })),
-    {
-      id: "follow-up-campaign",
-      kind: "follow-up" as const,
-      label: "Follow-up campaign",
-      section: "Follow-up Campaign",
-      text: assets.followUpCampaign
-    }
-  ];
+function deliveryBlocksFrom(delivery: SpecialistDelivery): DeliveryAssetBlock[] {
+  return delivery.sections.flatMap((section) =>
+    section.blocks.map((block) => ({
+      id: block.id,
+      kind: block.kind,
+      label: block.label,
+      section: section.title,
+      text: block.text
+    }))
+  );
 }
 
 function websiteNotProvided(): WebsiteAnalysis {

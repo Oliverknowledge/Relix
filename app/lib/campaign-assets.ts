@@ -19,25 +19,11 @@ export type RepositoryEvidence = {
   text: string;
 };
 
-export type LaunchThreadPost = {
-  label: string;
-  text: string;
-};
-
-export type FounderReply = {
-  prompt: string;
-  text: string;
-};
-
 export type GrowthCampaignAssets = {
   analysis: RepositoryAnalysis;
   analyticsSummary: string;
   evidence: RepositoryEvidence[];
-  followUpCampaign: string;
-  founderReplies: FounderReply[];
   landingPageRecommendation: string;
-  launchNote: string;
-  launchThread: LaunchThreadPost[];
   nextRecommendation: string;
   opportunity: string;
   opportunityLabel: string;
@@ -45,20 +31,17 @@ export type GrowthCampaignAssets = {
   productName: string;
   repository: string;
   sourceSummary: string;
-  specialistReport: string;
   websiteComparison: WebsiteComparison;
   websiteSummary: string;
 };
 
 export function createCampaignAssets({
   github,
-  goal,
   analytics,
   website
 }: {
   analytics?: GoogleAnalyticsMetrics | null;
   github: GitHubRepositoryContext;
-  goal: string;
   website?: WebsiteAnalysis | null;
 }): GrowthCampaignAssets {
   const productName = humanizeRepoName(github.name);
@@ -77,7 +60,6 @@ export function createCampaignAssets({
     release?.name || primaryCommit?.message || repoHeadline || "the latest build";
   const supportingChange =
     secondaryCommit?.message || release?.body || github.description || launchChange;
-  const goalLine = goal.trim() || "grow signups";
   const evidence = createEvidence(github, repoHeadline);
   const opportunityLabel = opportunityFromArea(productArea);
   const analysis = analyzeRepository(github);
@@ -98,49 +80,7 @@ export function createCampaignAssets({
     analysis,
     analyticsSummary,
     evidence,
-    followUpCampaign: `Second announcement: show what founders learned from the first launch window, then point users back to ${plainLower(
-      supportingChange
-    )}. Keep it specific: what improved, who should try it, and how it connects to ${
-      website?.primaryCta || "the signup path"
-    }.`,
-    founderReplies: [
-      {
-        prompt: "Why should I try it now?",
-        text: `Because the latest ${productName} work is focused on ${productArea}. The campaign should connect that update to ${
-          website?.primaryCta || "the landing page CTA"
-        }, not make a broad traction claim.`
-      },
-      {
-        prompt: "What changed?",
-        text: `${launchChange}. The repository points to ${productArea}. The website read says: ${websiteComparison.summary.toLowerCase()}.`
-      },
-      {
-        prompt: "Is this live?",
-        text: `The campaign assets are ready for review. Nothing has been posted or sent yet.`
-      }
-    ],
     landingPageRecommendation: websiteComparison.recommendation,
-    launchNote: `${productName} is ready for a focused launch around ${productArea}. Recent repository work shows ${plainLower(
-      launchChange
-    )}. The website currently says: ${
-      website?.promise || "the landing page needs review"
-    }. The campaign should make one clear promise: ${goalLine.toLowerCase()} by giving people a reason to try the newest build immediately.`,
-    launchThread: [
-      {
-        label: "Tweet 1",
-        text: `${productName} has a new launch moment: ${launchChange}.`
-      },
-      {
-        label: "Tweet 2",
-        text: `The reason this matters: the recent work is about ${productArea}. The landing page should now point people straight at ${
-          website?.primaryCta || "signup"
-        }.`
-      },
-      {
-        label: "Tweet 3",
-        text: `Next step: invite users into the updated flow, watch where they hesitate, and use this launch window to turn the new build into real feedback.`
-      }
-    ],
     nextRecommendation:
       websiteComparison.status === "missing-latest-update"
         ? websiteComparison.recommendation
@@ -151,9 +91,6 @@ export function createCampaignAssets({
     productName,
     repository: github.fullName,
     sourceSummary: github.recentSummary,
-    specialistReport: `I've prepared a launch centred around ${productArea}. The campaign ties recent repository work to ${
-      website?.primaryCta || "the landing page CTA"
-    }. All campaign assets are ready.`,
     websiteComparison,
     websiteSummary
   };
