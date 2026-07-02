@@ -4,6 +4,7 @@ import {
   exchangeXCodeForToken,
   expiryFrom,
   fetchXMe,
+  missingRequiredXScopes,
   parseScopes,
   xConfiguration,
   xRedirectUri
@@ -51,10 +52,21 @@ export async function GET(request: NextRequest) {
     }
 
     const profile = await fetchXMe(token.access_token);
+    const scopes = parseScopes(token.scope) || [];
+    const missingScopes = missingRequiredXScopes(scopes);
+
+    if (missingScopes.length > 0) {
+      throw new Error(
+        `X did not grant ${missingScopes.join(
+          ", "
+        )}. Enable Read and write permissions in the X Developer Portal, save, then reconnect X.`
+      );
+    }
+
     await upsertXAccount({
       accessToken: token.access_token,
       refreshToken: token.refresh_token,
-      scopes: parseScopes(token.scope) || [],
+      scopes,
       tokenExpiry: expiryFrom(token.expires_in),
       userId,
       username: profile.username,

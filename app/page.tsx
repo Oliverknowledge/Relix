@@ -107,6 +107,12 @@ const emptyXStatus: XConnectionStatus = {
   connected: false
 };
 const PHANTOM_DOWNLOAD_URL = "https://phantom.com/download";
+const REQUIRED_X_WRITE_SCOPES = [
+  "tweet.read",
+  "users.read",
+  "tweet.write",
+  "offline.access"
+];
 
 export default function Home() {
   const isClient = useSyncExternalStore(
@@ -506,9 +512,15 @@ export default function Home() {
       return;
     }
 
-    if (!xStatus.connected) {
+    const missingXScopes = missingXWriteScopes(xStatus);
+
+    if (!xStatus.connected || missingXScopes.length > 0) {
       setIntegrationError(
-        xStatus.configured
+        xStatus.connected && missingXScopes.length > 0
+          ? `Reconnect X after enabling ${missingXScopes.join(
+              ", "
+            )} in the X Developer Portal.`
+          : xStatus.configured
           ? "Connect X before hiring the employee."
           : "X OAuth is not configured yet. Add the X client credentials and token encryption key."
       );
@@ -1366,18 +1378,28 @@ function XConnection({
   xStatus: XConnectionStatus;
 }) {
   if (xStatus.connected && xStatus.account) {
+    const missingScopes = missingXWriteScopes(xStatus);
+
     return (
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="rounded-full border border-[#0a0a0a] bg-[#0a0a0a] px-4 py-3 text-sm font-medium text-white">
-          X @{xStatus.account.username}
+      <div className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="rounded-full border border-[#0a0a0a] bg-[#0a0a0a] px-4 py-3 text-sm font-medium text-white">
+            X @{xStatus.account.username}
+          </div>
+          <button
+            className="text-xs text-[#71717a] transition hover:text-[#0a0a0a]"
+            onClick={() => void disconnect()}
+            type="button"
+          >
+            Disconnect X
+          </button>
         </div>
-        <button
-          className="text-xs text-[#71717a] transition hover:text-[#0a0a0a]"
-          onClick={() => void disconnect()}
-          type="button"
-        >
-          Disconnect X
-        </button>
+        {missingScopes.length > 0 ? (
+          <p className="text-xs leading-5 text-[#71717a]">
+            X needs {missingScopes.join(", ")}. Enable Read and write
+            permissions, save, then reconnect X.
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -2667,6 +2689,12 @@ function upsertClientXPost(posts: ScheduledXPost[], nextPost: ScheduledXPost) {
   }
 
   return posts.map((post) => (post.id === nextPost.id ? nextPost : post));
+}
+
+function missingXWriteScopes(xStatus: XConnectionStatus) {
+  const scopes = xStatus.account?.scopes || [];
+
+  return REQUIRED_X_WRITE_SCOPES.filter((scope) => !scopes.includes(scope));
 }
 
 function xStatusLabel(status: ScheduledXPost["status"]) {

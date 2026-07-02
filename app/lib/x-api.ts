@@ -14,7 +14,12 @@ import type { XAccount } from "@/app/lib/x-types";
 
 const xAuthorizeUrl = "https://x.com/i/oauth2/authorize";
 const xApiBase = "https://api.x.com";
-const xScopes = ["tweet.read", "users.read", "tweet.write", "offline.access"];
+export const REQUIRED_X_SCOPES = [
+  "tweet.read",
+  "users.read",
+  "tweet.write",
+  "offline.access"
+];
 
 type XTokenResponse = {
   access_token?: string;
@@ -32,7 +37,9 @@ type XMeResponse = {
     name?: string;
     username: string;
   };
+  detail?: string;
   errors?: Array<{ detail?: string; title?: string }>;
+  title?: string;
 };
 
 type CreatePostResponse = {
@@ -40,11 +47,13 @@ type CreatePostResponse = {
     id: string;
     text: string;
   };
+  detail?: string;
   errors?: Array<{
     detail?: string;
     status?: number;
     title?: string;
   }>;
+  title?: string;
 };
 
 export class XApiError extends Error {
@@ -97,7 +106,7 @@ export function xOAuthUrl({
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", xScopes.join(" "));
+  url.searchParams.set("scope", REQUIRED_X_SCOPES.join(" "));
   url.searchParams.set("state", state);
   url.searchParams.set("code_challenge", sha256Base64Url(codeVerifier));
   url.searchParams.set("code_challenge_method", "S256");
@@ -178,7 +187,7 @@ export async function fetchXMe(accessToken: string) {
 
   if (!response.ok || !data.data) {
     throw new XApiError(
-      xErrorMessage(data.errors, "Could not read X profile."),
+      xErrorMessage(data, "Could not read X profile."),
       response.status
     );
   }
@@ -195,6 +204,17 @@ export async function publishXPost({
   text: string;
   userId: string;
 }) {
+  const missingScopes = missingRequiredXScopes(account.scopes);
+
+  if (missingScopes.length > 0) {
+    throw new XApiError(
+      `X did not grant ${missingScopes.join(
+        ", "
+      )}. Enable Read and write permissions in the X Developer Portal, save, then reconnect X.`,
+      403
+    );
+  }
+
   if (!text.trim()) {
     throw new XApiError("Post text is required.", 400);
   }
@@ -213,7 +233,7 @@ export async function publishXPost({
     },
     method: "POST"
   });
-  const data = (await response.json()) as CreatePostResponse;
+  const data = await readXJson<CreatePostResponse>(response);
 
   if (!response.ok || !data.data) {
     if (response.status === 401 || response.status === 403) {
@@ -224,7 +244,10 @@ export async function publishXPost({
     }
 
     throw new XApiError(
-      xErrorMessage(data.errors, publishErrorFor(response.status)),
+      xErrorMessage(
+        data,
+        `${publishErrorFor(response.status)} X API returned ${response.status}.`
+      ),
       response.status
     );
   }
@@ -242,6 +265,10 @@ export function parseScopes(scope?: string) {
   }
 
   return scope.split(/\s+/).filter(Boolean);
+}
+
+export function missingRequiredXScopes(scopes: string[]) {
+  return REQUIRED_X_SCOPES.filter((scope) => !scopes.includes(scope));
 }
 
 export function expiryFrom(expiresIn?: number) {
@@ -269,7 +296,7 @@ async function requestXToken(body: URLSearchParams) {
     },
     method: "POST"
   });
-  const token = (await response.json()) as XTokenResponse;
+  const token = await readXJson<XTokenResponse>(response);
 
   if (!response.ok) {
     throw new XApiError(
@@ -290,14 +317,27 @@ function requiredToken(value: string | undefined, message: string) {
 }
 
 function xErrorMessage(
-  errors: CreatePostResponse["errors"] | XMeResponse["errors"],
+  body: CreatePostResponse | XMeResponse,
   fallback: string
 ) {
-  return errors
+  return (
+    body.detail ||
+    body.title ||
+    body.errors
     ?.map((error) => error.detail || error.title)
     .filter(Boolean)
     .join(" ")
-    .trim() || fallback;
+      .trim() ||
+    fallback
+  );
+}
+
+async function readXJson<T>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T;
+  } catch {
+    return {} as T;
+  }
 }
 
 function publishErrorFor(status: number) {

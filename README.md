@@ -107,6 +107,17 @@ tweet.read users.read tweet.write offline.access
 
 Scheduled publishing is processed when `/api/x/posts?publishDue=true` is called. The UI polls this while scheduled posts exist. In production, call the same endpoint from a cron job.
 
+### X 401 Or Missing Write Access
+
+If publishing returns `401` or Relix says X did not grant `tweet.write`, open the X Developer Portal app settings and confirm:
+
+- App permissions are set to `Read and write`.
+- OAuth 2.0 is enabled for a Web App / confidential client.
+- The callback URL is exactly `https://your-domain/api/x/callback`.
+- The requested scopes include `tweet.read users.read tweet.write offline.access`.
+
+After changing X permissions, disconnect X in Relix and connect it again. Existing tokens do not gain new scopes automatically.
+
 ## Solana Devnet Flow
 
 Devnet is hardcoded in `app/providers.tsx` with `clusterApiUrl("devnet")`. Mainnet is not used.
