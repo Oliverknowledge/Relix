@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
-import path from "path";
 import { decryptString, encryptString } from "@/app/lib/crypto";
+import { dataDirectory, dataPath } from "@/app/lib/data-path";
 import type {
   ScheduledXPost,
   XAccount,
@@ -9,9 +9,8 @@ import type {
   XPostStatus
 } from "@/app/lib/x-types";
 
-const dataDir = path.join(process.cwd(), "data");
-const accountsFile = path.join(dataDir, "x-accounts.json");
-const postsFile = path.join(dataDir, "x-posts.json");
+const accountsFile = dataPath("x-accounts.json");
+const postsFile = dataPath("x-posts.json");
 
 export function publicXAccount(account: XAccount): XAccountPublic {
   return {
@@ -570,7 +569,7 @@ async function readJson<T>(file: string): Promise<T[]> {
 }
 
 async function writeJson<T>(file: string, records: T[]) {
-  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(dataDirectory(), { recursive: true });
   await fs.writeFile(file, `${JSON.stringify(records, null, 2)}\n`, "utf8");
 }
 

@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import path from "path";
+import { dataDirectory, dataPath } from "@/app/lib/data-path";
 
 export type ActivityRecord = {
   campaign_id: string;
@@ -10,8 +10,7 @@ export type ActivityRecord = {
   text: string;
 };
 
-const dataDir = path.join(process.cwd(), "data");
-const dataFile = path.join(dataDir, "activity-log.json");
+const dataFile = dataPath("activity-log.json");
 
 export async function appendActivity(records: ActivityRecord[]) {
   const current = await readActivity();
@@ -54,6 +53,6 @@ async function readActivity(): Promise<ActivityRecord[]> {
 }
 
 async function writeActivity(records: ActivityRecord[]) {
-  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(dataDirectory(), { recursive: true });
   await fs.writeFile(dataFile, `${JSON.stringify(records, null, 2)}\n`, "utf8");
 }

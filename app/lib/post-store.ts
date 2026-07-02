@@ -1,13 +1,12 @@
 import { promises as fs } from "fs";
-import path from "path";
+import { dataDirectory, dataPath } from "@/app/lib/data-path";
 import type {
   ScheduledPost,
   ScheduledPostStatus,
   SchedulePostInput
 } from "@/app/lib/post-types";
 
-const dataDir = path.join(process.cwd(), "data");
-const dataFile = path.join(dataDir, "scheduled-posts.json");
+const dataFile = dataPath("scheduled-posts.json");
 
 export async function listScheduledPosts(campaignId?: string) {
   const posts = await readPosts();
@@ -104,7 +103,7 @@ async function readPosts(): Promise<ScheduledPost[]> {
 }
 
 async function writePosts(posts: ScheduledPost[]) {
-  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(dataDirectory(), { recursive: true });
   await fs.writeFile(dataFile, `${JSON.stringify(posts, null, 2)}\n`, "utf8");
 }
 

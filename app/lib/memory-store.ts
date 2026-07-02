@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import path from "path";
+import { dataDirectory, dataPath } from "@/app/lib/data-path";
 
 export type CampaignMemoryRecord = {
   campaign_id: string;
@@ -17,8 +17,7 @@ export type CampaignMemoryRecord = {
   specialist_used: string;
 };
 
-const dataDir = path.join(process.cwd(), "data");
-const dataFile = path.join(dataDir, "campaign-memory.json");
+const dataFile = dataPath("campaign-memory.json");
 
 export async function listCampaignMemory(repository?: string) {
   const records = await readMemory();
@@ -63,6 +62,6 @@ async function readMemory(): Promise<CampaignMemoryRecord[]> {
 }
 
 async function writeMemory(records: CampaignMemoryRecord[]) {
-  await fs.mkdir(dataDir, { recursive: true });
+  await fs.mkdir(dataDirectory(), { recursive: true });
   await fs.writeFile(dataFile, `${JSON.stringify(records, null, 2)}\n`, "utf8");
 }
