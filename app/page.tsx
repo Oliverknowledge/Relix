@@ -1219,7 +1219,7 @@ export default function Home() {
 
   return (
     <main>
-      {isClient && activeStage !== "setup" ? (
+      {isClient ? (
         <WalletStrip
           balanceSol={balanceSol}
           connected={connected}
@@ -1236,31 +1236,22 @@ export default function Home() {
 
       {activeStage === "setup" ? (
         <SetupSection
-          balanceSol={balanceSol}
-          connected={connected}
-          connecting={connecting || pendingWalletName !== null}
-          disconnectWallet={disconnect}
           form={form}
           githubStatus={githubStatus}
           googleStatus={googleStatus}
           integrationError={integrationError}
-          isAirdropping={isAirdropping}
           isRunning={isRunning}
           loading={statusLoading}
-          publicKey={publicKey?.toBase58() || null}
           refreshRepositories={loadRepositories}
           refreshToolStatuses={refreshToolStatuses}
           repositories={repositories}
           reposLoading={reposLoading}
-          requestDevnetSol={requestDevnetSol}
-          selectWallet={connectWallet}
           selectedAnalyticsProperty={selectedAnalyticsProperty}
           selectedRepo={selectedRepo}
           setForm={setForm}
           setSelectedAnalyticsProperty={setSelectedAnalyticsProperty}
           setSelectedRepo={setSelectedRepo}
           submit={hireEmployee}
-          wallets={wallets}
           xDisconnect={disconnectX}
           xStatus={xStatus}
         />
@@ -1329,73 +1320,53 @@ export default function Home() {
 }
 
 function SetupSection({
-  balanceSol,
-  connected,
-  connecting,
-  disconnectWallet,
   form,
   githubStatus,
   googleStatus,
   integrationError,
-  isAirdropping,
   isRunning,
   loading,
-  publicKey,
   refreshRepositories,
   refreshToolStatuses,
   repositories,
   reposLoading,
-  requestDevnetSol,
-  selectWallet,
   selectedAnalyticsProperty,
   selectedRepo,
   setForm,
   setSelectedAnalyticsProperty,
   setSelectedRepo,
   submit,
-  wallets,
   xDisconnect,
   xStatus
 }: {
-  balanceSol: number | null;
-  connected: boolean;
-  connecting: boolean;
-  disconnectWallet: () => Promise<void>;
   form: FounderRequest;
   githubStatus: GitHubStatus;
   googleStatus: GoogleAnalyticsStatus;
   integrationError: string | null;
-  isAirdropping: boolean;
   isRunning: boolean;
   loading: boolean;
-  publicKey: string | null;
   refreshRepositories: () => Promise<void>;
   refreshToolStatuses: () => Promise<void>;
   repositories: GitHubRepositorySummary[];
   reposLoading: boolean;
-  requestDevnetSol: () => Promise<void>;
-  selectWallet: (walletName: WalletName) => void;
   selectedAnalyticsProperty: string;
   selectedRepo: string;
   setForm: Dispatch<SetStateAction<FounderRequest>>;
   setSelectedAnalyticsProperty: (value: string) => void;
   setSelectedRepo: (value: string) => void;
   submit: () => Promise<void>;
-  wallets: Wallet[];
   xDisconnect: () => Promise<void>;
   xStatus: XConnectionStatus;
 }) {
   return (
     <section className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-5 py-16 sm:px-8">
       <div className="max-w-3xl">
-        <p className="text-sm font-medium text-[#71717a]">Relix</p>
-        <h1 className="mt-5 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
+        <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
           Hire your first AI Growth Employee.
         </h1>
         <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
-          Connect GitHub and Phantom. Give Relix one goal. It reads what
-          shipped, hires a specialist, settles payment, and prepares approved
-          launch posts.
+          Connect GitHub. Give Relix one goal. It reads what shipped, hires a
+          specialist, settles payment, and prepares approved launch posts.
         </p>
       </div>
 
@@ -1406,18 +1377,6 @@ function SetupSection({
           void submit();
         }}
       >
-        <SetupWalletConnection
-          balanceSol={balanceSol}
-          connected={connected}
-          connecting={connecting}
-          disconnect={disconnectWallet}
-          isAirdropping={isAirdropping}
-          publicKey={publicKey}
-          requestDevnetSol={requestDevnetSol}
-          selectWallet={selectWallet}
-          wallets={wallets}
-        />
-
         <GitHubConnection
           githubStatus={githubStatus}
           loading={loading}
@@ -1536,89 +1495,6 @@ function SetupSection({
         ) : null}
       </form>
     </section>
-  );
-}
-
-function SetupWalletConnection({
-  balanceSol,
-  connected,
-  connecting,
-  disconnect,
-  isAirdropping,
-  publicKey,
-  requestDevnetSol,
-  selectWallet,
-  wallets
-}: {
-  balanceSol: number | null;
-  connected: boolean;
-  connecting: boolean;
-  disconnect: () => Promise<void>;
-  isAirdropping: boolean;
-  publicKey: string | null;
-  requestDevnetSol: () => Promise<void>;
-  selectWallet: (walletName: WalletName) => void;
-  wallets: Wallet[];
-}) {
-  const phantomWallet = wallets.find(
-    ({ adapter }) => String(adapter.name) === "Phantom"
-  );
-  const phantomReadyState = phantomWallet?.adapter.readyState;
-  const canConnectPhantom =
-    phantomReadyState === WalletReadyState.Installed ||
-    phantomReadyState === WalletReadyState.Loadable;
-  const balanceIsLow =
-    connected && balanceSol !== null && balanceSol < LOW_BALANCE_SOL;
-
-  return (
-    <div className="grid gap-2">
-      <p className="text-sm font-medium text-[#18181b]">Phantom</p>
-      {connected && publicKey ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="rounded-full border border-[#0a0a0a] bg-[#0a0a0a] px-4 py-3 text-sm font-medium text-white">
-            Phantom {shortAddress(publicKey)}
-          </div>
-          <span className="text-xs text-[#71717a]">
-            {balanceSol === null ? "Reading balance" : `${formatBalance(balanceSol)} SOL`}
-          </span>
-          <button
-            className="text-xs text-[#71717a] transition hover:text-[#0a0a0a]"
-            onClick={() => void disconnect()}
-            type="button"
-          >
-            Disconnect
-          </button>
-          {balanceIsLow ? (
-            <button
-              className="rounded-full bg-[#0a0a0a] px-3 py-2 text-xs font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-              disabled={isAirdropping}
-              onClick={() => void requestDevnetSol()}
-              type="button"
-            >
-              {isAirdropping ? "Requesting..." : "Get devnet SOL"}
-            </button>
-          ) : null}
-        </div>
-      ) : phantomWallet && canConnectPhantom ? (
-        <button
-          className="w-fit rounded-full border hairline bg-white px-4 py-3 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a] disabled:opacity-50"
-          disabled={connecting}
-          onClick={() => selectWallet(phantomWallet.adapter.name)}
-          type="button"
-        >
-          {connecting ? "Connecting Phantom..." : "Connect Phantom"}
-        </button>
-      ) : (
-        <a
-          className="w-fit rounded-full border hairline bg-white px-4 py-3 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a]"
-          href={PHANTOM_DOWNLOAD_URL}
-          rel="noreferrer"
-          target="_blank"
-        >
-          Get Phantom
-        </a>
-      )}
-    </div>
   );
 }
 
@@ -2104,73 +1980,83 @@ function WalletStrip({
     connected && balanceSol !== null && balanceSol < LOW_BALANCE_SOL;
 
   return (
-    <div className="fixed right-4 top-4 z-20 max-w-[calc(100vw-2rem)] text-right sm:right-6 sm:top-6">
-      {connected && publicKey ? (
-        <div className="inline-flex flex-wrap items-center justify-end gap-2 rounded-full border hairline bg-white/85 px-3 py-2 text-xs text-[#52525b] shadow-sm backdrop-blur">
-          <span>Devnet</span>
-          <span className="h-1 w-1 rounded-full bg-[#d4d4d8]" />
-          <span>{balanceSol === null ? "..." : `${formatBalance(balanceSol)} SOL`}</span>
-          <span className="h-1 w-1 rounded-full bg-[#d4d4d8]" />
-          <span>{shortAddress(publicKey)}</span>
-          <button
-            className="ml-1 text-[#0a0a0a] transition hover:text-[#2563eb]"
-            onClick={() => void disconnect()}
-            type="button"
-          >
-            Disconnect
-          </button>
+    <nav className="fixed inset-x-0 top-0 z-30 px-5 py-4 sm:px-8">
+      <div className="mx-auto flex max-w-5xl items-start justify-between gap-4">
+        <div className="rounded-full bg-[#fbfbfa]/80 px-3 py-2 text-sm font-semibold tracking-[-0.02em] text-[#0a0a0a] backdrop-blur">
+          Relix
         </div>
-      ) : (
-        <div className="inline-flex flex-wrap justify-end gap-2">
-          {phantomWallet && canConnectPhantom ? (
-            <button
-              className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
-              disabled={connecting}
-              onClick={() => selectWallet(phantomWallet.adapter.name)}
-              type="button"
-            >
-              {connecting ? "Connecting..." : "Connect Phantom"}
-            </button>
+
+        <div className="flex flex-col items-end gap-2">
+          {connected && publicKey ? (
+            <div className="inline-flex max-w-full flex-wrap items-center justify-end gap-2 rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 text-xs text-[#52525b] shadow-sm backdrop-blur">
+              <span>Devnet</span>
+              <span className="h-1 w-1 rounded-full bg-[#d4d4d8]" />
+              <span>
+                {balanceSol === null ? "..." : `${formatBalance(balanceSol)} SOL`}
+              </span>
+              <span className="h-1 w-1 rounded-full bg-[#d4d4d8]" />
+              <span>{shortAddress(publicKey)}</span>
+              <button
+                className="ml-1 text-[#0a0a0a] transition hover:text-[#2563eb]"
+                onClick={() => void disconnect()}
+                type="button"
+              >
+                Disconnect
+              </button>
+            </div>
           ) : (
-            <a
-              className="rounded-full border hairline bg-white/85 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
-              href={PHANTOM_DOWNLOAD_URL}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Get Phantom
-            </a>
+            <div className="inline-flex flex-wrap justify-end gap-2">
+              {phantomWallet && canConnectPhantom ? (
+                <button
+                  className="rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a] disabled:opacity-50"
+                  disabled={connecting}
+                  onClick={() => selectWallet(phantomWallet.adapter.name)}
+                  type="button"
+                >
+                  {connecting ? "Connecting..." : "Connect Phantom"}
+                </button>
+              ) : (
+                <a
+                  className="rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
+                  href={PHANTOM_DOWNLOAD_URL}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Get Phantom
+                </a>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {balanceIsLow ? (
-        <div className="mt-2 flex flex-wrap justify-end gap-2 text-xs">
-          <button
-            className="rounded-full bg-[#0a0a0a] px-3 py-2 font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-            disabled={isAirdropping}
-            onClick={() => void requestDevnetSol()}
-            type="button"
-          >
-            {isAirdropping ? "Requesting..." : "Get devnet SOL"}
-          </button>
-          <a
-            className="rounded-full border hairline bg-white/85 px-3 py-2 font-medium text-[#52525b] shadow-sm backdrop-blur transition hover:border-[#0a0a0a] hover:text-[#0a0a0a]"
-            href={FAUCET_URL}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Faucet
-          </a>
-        </div>
-      ) : null}
+          {balanceIsLow ? (
+            <div className="flex flex-wrap justify-end gap-2 text-xs">
+              <button
+                className="rounded-full bg-[#0a0a0a] px-3 py-2 font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+                disabled={isAirdropping}
+                onClick={() => void requestDevnetSol()}
+                type="button"
+              >
+                {isAirdropping ? "Requesting..." : "Get devnet SOL"}
+              </button>
+              <a
+                className="rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 font-medium text-[#52525b] shadow-sm backdrop-blur transition hover:border-[#0a0a0a] hover:text-[#0a0a0a]"
+                href={FAUCET_URL}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Faucet
+              </a>
+            </div>
+          ) : null}
 
-      {message ? (
-        <p className="ml-auto mt-2 max-w-xs rounded-2xl bg-white/90 px-3 py-2 text-xs leading-5 text-[#52525b] shadow-sm backdrop-blur">
-          {message}
-        </p>
-      ) : null}
-    </div>
+          {message ? (
+            <p className="max-w-xs rounded-2xl bg-[#fbfbfa]/90 px-3 py-2 text-right text-xs leading-5 text-[#52525b] shadow-sm backdrop-blur">
+              {message}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </nav>
   );
 }
 
