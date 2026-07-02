@@ -166,7 +166,6 @@ export default function Home() {
   const [growthWork, setGrowthWork] = useState<GrowthEmployeeWork | null>(null);
   const [xStatus, setXStatus] = useState<XConnectionStatus>(emptyXStatus);
   const [workLog, setWorkLog] = useState<WorkLogEntry[]>([]);
-  const [visibleBidCount, setVisibleBidCount] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [integrationError, setIntegrationError] = useState<string | null>(null);
@@ -533,7 +532,6 @@ export default function Home() {
     setExecutedActionCount(0);
     setIsExecutingWork(false);
     setWorkLog([]);
-    setVisibleBidCount(0);
     setHasRun(false);
     setIntegrationError(null);
     setGithubContext(null);
@@ -636,7 +634,6 @@ export default function Home() {
 
       for (let index = 0; index < nextCampaign.bids.length; index += 1) {
         await sleep(360);
-        setVisibleBidCount(index + 1);
         await addLog(
           `${specialistDisplayName(nextCampaign.bids[index])} responded`,
           "done",
@@ -1119,13 +1116,6 @@ export default function Home() {
       {(workLog.length > 0 || hasRun) && (
         <section className="mx-auto max-w-5xl px-5 pb-24 sm:px-8">
           <WorkLog entries={workLog} />
-          {!hasRun && visibleBidCount > 0 && campaignAssets ? (
-            <LiveBidsSection
-              assets={campaignAssets}
-              campaign={campaign}
-              visibleBidCount={visibleBidCount}
-            />
-          ) : null}
 
           {hasRun &&
           githubContext &&
@@ -1133,15 +1123,15 @@ export default function Home() {
           repositoryAnalysis &&
           growthWork ? (
             <div className="enter mt-24 grid gap-24" ref={resultsRef}>
-              <GitHubAnalysisSection
-                analysis={repositoryAnalysis}
-                context={githubContext}
-              />
               <BidsSection assets={campaignAssets} campaign={campaign} />
               <WinnerSection
                 assets={campaignAssets}
                 campaign={campaign}
                 memory={campaignMemory}
+              />
+              <GitHubAnalysisSection
+                analysis={repositoryAnalysis}
+                context={githubContext}
               />
               <SpecialistDeliverySection
                 assets={campaignAssets}
@@ -1676,37 +1666,6 @@ function GitHubAnalysisSection({
             </div>
           </div>
         </div>
-      </div>
-    </section>
-  );
-}
-
-function LiveBidsSection({
-  assets,
-  campaign,
-  visibleBidCount
-}: {
-  assets: GrowthCampaignAssets;
-  campaign: CampaignPlan;
-  visibleBidCount: number;
-}) {
-  return (
-    <section className="enter mx-auto -mt-20 max-w-2xl pb-20">
-      <div className="grid gap-3">
-        {campaign.bids.slice(0, visibleBidCount).map((bid) => (
-          <div
-            className="enter flex items-start justify-between gap-4 rounded-3xl border hairline bg-white p-4 shadow-sm"
-            key={bid.id}
-          >
-            <div>
-              <p className="font-medium">{specialistDisplayName(bid)}</p>
-              <p className="mt-1 text-sm leading-6 text-[#71717a]">
-                {bidRepositoryReason(bid, assets)}
-              </p>
-            </div>
-            <p className="shrink-0 text-sm font-medium">{formatSol(bid.priceSol)}</p>
-          </div>
-        ))}
       </div>
     </section>
   );
