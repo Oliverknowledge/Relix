@@ -118,7 +118,7 @@ const creatorOutreachAgent: SpecialistAgent = {
   id: "creator-outreach",
   name: "Creator Outreach Specialist",
   ownerName: "Mara Voss",
-  ownerWallet: "5Hge1MAUcB6X5ZjukBSgtHyg7eYgsLqs3qzpLKhAkBLq",
+  ownerWallet: "B4EhWwyYqEzU2Kym7JryJRG6spPsvBJDmGNsr5XHWvFU",
   capabilities: [
     "creator-briefs",
     "playtest-programs",
@@ -149,7 +149,7 @@ const tournamentAgent: SpecialistAgent = {
   id: "tournament",
   name: "Tournament Specialist",
   ownerName: "Kenji Sato",
-  ownerWallet: "5QQFQFaUnTMNsqqk8nKyqpqJM822LGV16uRScEhC4gV2",
+  ownerWallet: "B4EhWwyYqEzU2Kym7JryJRG6spPsvBJDmGNsr5XHWvFU",
   capabilities: [
     "launch-events",
     "tournament-design",
@@ -180,7 +180,7 @@ const referralAgent: SpecialistAgent = {
   id: "referral",
   name: "Referral Specialist",
   ownerName: "Priya Raman",
-  ownerWallet: "tSU6Ddrekpgw4YV2gHTvxmXEJfPcGrCxwFT7BTGfBzs",
+  ownerWallet: "B4EhWwyYqEzU2Kym7JryJRG6spPsvBJDmGNsr5XHWvFU",
   capabilities: [
     "invite-loops",
     "reward-ladders",
@@ -211,7 +211,7 @@ const communityAgent: SpecialistAgent = {
   id: "community",
   name: "Community Launch Specialist",
   ownerName: "Diego Fuentes",
-  ownerWallet: "HU7aj5D7psSLs92CBwXDutTQVjcGoppD9TQoe4hPssWe",
+  ownerWallet: "B4EhWwyYqEzU2Kym7JryJRG6spPsvBJDmGNsr5XHWvFU",
   capabilities: [
     "community-briefs",
     "moderator-notes",
