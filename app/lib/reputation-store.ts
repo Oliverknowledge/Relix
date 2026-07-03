@@ -3,6 +3,7 @@ import { dataDirectory, dataPath } from "@/app/lib/data-path";
 import {
   specialistRegistry,
   type SpecialistId,
+  type SpecialistRecentJob,
   type SpecialistReputation
 } from "@/app/lib/specialist-agents";
 
@@ -13,9 +14,12 @@ type ReputationRecord = {
   ratedSignatures: string[];
   ratingCount: number;
   ratingSum: number;
+  recentJobs: SpecialistRecentJob[];
   specialistId: SpecialistId;
   totalEarnedSol: number;
 };
+
+const MAX_RECENT_JOBS = 8;
 
 const dataFile = dataPath("specialist-reputation.json");
 
@@ -32,11 +36,13 @@ export async function listSpecialistReputation() {
 
 export async function recordJobCompletion({
   amountSol,
+  client,
   hiredAt,
   signature,
   specialistId
 }: {
   amountSol: number;
+  client?: string;
   hiredAt: string;
   signature: string;
   specialistId: SpecialistId;
@@ -51,6 +57,14 @@ export async function recordJobCompletion({
       (record.totalEarnedSol + amountSol).toFixed(4)
     );
     record.lastHiredAt = hiredAt;
+    record.recentJobs = [
+      {
+        amountSol,
+        client: client?.trim() || "Undisclosed client",
+        completedAt: hiredAt
+      },
+      ...(record.recentJobs || [])
+    ].slice(0, MAX_RECENT_JOBS);
     records[specialistId] = record;
     await writeRecords(records);
   }
@@ -102,6 +116,7 @@ function combineReputation(
         : 0,
     jobsCompleted: seedJobs + extraJobs,
     lastHiredAt: record?.lastHiredAt || seedLastHired,
+    recentJobs: record?.recentJobs || [],
     totalEarnedSol: Number(
       (seedEarned + (record?.totalEarnedSol || 0)).toFixed(4)
     )
@@ -116,6 +131,7 @@ function emptyRecord(specialistId: SpecialistId): ReputationRecord {
     ratedSignatures: [],
     ratingCount: 0,
     ratingSum: 0,
+    recentJobs: [],
     specialistId,
     totalEarnedSol: 0
   };

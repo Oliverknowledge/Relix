@@ -215,6 +215,9 @@ export default function Home() {
   const [showPublishForm, setShowPublishForm] = useState(false);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [profileAgentId, setProfileAgentId] = useState<SpecialistId | null>(
+    null
+  );
   const [githubStatus, setGithubStatus] =
     useState<GitHubStatus>(emptyGitHubStatus);
   const [googleStatus, setGoogleStatus] =
@@ -722,7 +725,11 @@ export default function Home() {
       setIsExecutingWork(true);
       void refreshBalance();
       void saveCampaignMemory(nextPayment);
-      void recordSpecialistPayment(winningBid.specialistId, nextPayment);
+      void recordSpecialistPayment(
+        winningBid.specialistId,
+        nextPayment,
+        campaign.jobContext.productName
+      );
 
       const actions = growthWork?.actions || [];
       for (let index = 0; index < actions.length; index += 1) {
@@ -1363,12 +1370,14 @@ export default function Home() {
 
   const recordSpecialistPayment = async (
     specialistId: SpecialistId,
-    paymentResult: PaymentResult
+    paymentResult: PaymentResult,
+    client: string
   ) => {
     try {
       const response = await fetch("/api/reputation/complete", {
         body: JSON.stringify({
           amountSol: paymentResult.settlementSol,
+          client,
           hiredAt: new Date().toISOString(),
           signature: paymentResult.signature,
           specialistId
@@ -1502,6 +1511,7 @@ export default function Home() {
           isPublishing={isPublishing}
           isRunning={isRunning}
           loading={statusLoading}
+          onOpenProfile={setProfileAgentId}
           onPublishSpecialist={publishSpecialist}
           publishMessage={publishMessage}
           publishedSpecialists={publishedSpecialists}
@@ -1558,6 +1568,7 @@ export default function Home() {
           onCancelPost={cancelScheduledXPost}
           onCopyAsset={copyAsset}
           onEditAsset={setEditingAssetId}
+          onOpenProfile={setProfileAgentId}
           onPublishNow={publishXPostNow}
           onRate={rateDelivery}
           onRelease={releasePayment}
@@ -1587,6 +1598,17 @@ export default function Home() {
           xStatus={xStatus}
         />
       ) : null}
+
+      {profileAgentId ? (
+        <AgentProfileModal
+          agent={getSpecialistAgent(profileAgentId)}
+          onClose={() => setProfileAgentId(null)}
+          reputation={
+            reputation[profileAgentId] ||
+            seedReputationFor(getSpecialistAgent(profileAgentId))
+          }
+        />
+      ) : null}
     </main>
   );
 }
@@ -1599,6 +1621,7 @@ function SetupSection({
   isPublishing,
   isRunning,
   loading,
+  onOpenProfile,
   onPublishSpecialist,
   publishMessage,
   publishedSpecialists,
@@ -1624,6 +1647,7 @@ function SetupSection({
   isPublishing: boolean;
   isRunning: boolean;
   loading: boolean;
+  onOpenProfile: (id: SpecialistId) => void;
   onPublishSpecialist: (
     input: PublishSpecialistFormValues
   ) => Promise<boolean>;
@@ -1784,6 +1808,7 @@ function SetupSection({
 
       <PublishSpecialistPanel
         isPublishing={isPublishing}
+        onOpenProfile={onOpenProfile}
         onPublish={onPublishSpecialist}
         publishMessage={publishMessage}
         publishedSpecialists={publishedSpecialists}
@@ -1796,6 +1821,7 @@ function SetupSection({
 
 function PublishSpecialistPanel({
   isPublishing,
+  onOpenProfile,
   onPublish,
   publishMessage,
   publishedSpecialists,
@@ -1803,6 +1829,7 @@ function PublishSpecialistPanel({
   showForm
 }: {
   isPublishing: boolean;
+  onOpenProfile: (id: SpecialistId) => void;
   onPublish: (input: PublishSpecialistFormValues) => Promise<boolean>;
   publishMessage: string | null;
   publishedSpecialists: SpecialistAgent[];
@@ -1814,24 +1841,20 @@ function PublishSpecialistPanel({
   );
   const update = (field: keyof PublishSpecialistFormValues, value: string) =>
     setValues((current) => ({ ...current, [field]: value }));
+  const sellers = [...specialistRegistry, ...publishedSpecialists];
 
   return (
     <div className="mt-16 max-w-2xl border-t hairline pt-10">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-md">
-          <p className="text-sm font-medium text-[#18181b]">For agent creators</p>
-          <p className="mt-2 text-sm leading-6 text-[#52525b]">
-            Publish an agent that can bid for paid growth work. A specialist is
-            an independent seller agent — it competes for jobs and its owner is
-            paid on Solana after delivery.
+          <p className="text-sm font-medium text-[#18181b]">
+            Sellers on this marketplace
           </p>
-          {publishedSpecialists.length > 0 ? (
-            <p className="mt-2 text-xs text-[#71717a]">
-              {publishedSpecialists.length} community{" "}
-              {publishedSpecialists.length === 1 ? "agent" : "agents"} already
-              listed in the marketplace.
-            </p>
-          ) : null}
+          <p className="mt-2 text-sm leading-6 text-[#52525b]">
+            Each specialist is an independent business run by an owner. It
+            competes for jobs, delivers work, and earns SOL. Open a profile to
+            see its track record.
+          </p>
         </div>
         <button
           className="rounded-full border hairline bg-white px-4 py-2.5 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a]"
@@ -1841,6 +1864,32 @@ function PublishSpecialistPanel({
           {showForm ? "Close" : "Publish Specialist"}
         </button>
       </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        {sellers.map((agent) => (
+          <button
+            className="flex items-center gap-2 rounded-full border hairline bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:border-[#0a0a0a]"
+            key={agent.id}
+            onClick={() => onOpenProfile(agent.id)}
+            type="button"
+          >
+            <span aria-hidden="true">{agent.avatar}</span>
+            <span>{agent.name}</span>
+            {agent.averageRating > 0 ? (
+              <span className="text-[#71717a]">
+                {agent.averageRating.toFixed(1)}
+              </span>
+            ) : (
+              <span className="text-[#71717a]">new</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-[#71717a]">
+        Publish an agent that can bid for paid growth work. Its owner is paid
+        on Solana after delivery.
+      </p>
 
       {showForm ? (
         <form
@@ -1990,6 +2039,209 @@ function PublishField({
   );
 }
 
+function AgentProfileModal({
+  agent,
+  onClose,
+  reputation
+}: {
+  agent: SpecialistAgent;
+  onClose: () => void;
+  reputation: SpecialistReputation;
+}) {
+  const liveExtraEarnings = Math.max(
+    0,
+    reputation.totalEarnedSol - agent.totalEarnedSol
+  );
+  const earnings = agent.monthlyEarnings.map((value, index) =>
+    index === agent.monthlyEarnings.length - 1
+      ? Number((value + liveExtraEarnings).toFixed(4))
+      : value
+  );
+  const recentClients = [
+    ...reputation.recentJobs.map((job) => job.client),
+    ...agent.recentClients
+  ]
+    .filter((client, index, all) => all.indexOf(client) === index)
+    .slice(0, 6);
+
+  return (
+    <div
+      className="fixed inset-0 z-30 flex items-center justify-center bg-black/25 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="presentation"
+    >
+      <article
+        className="enter max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-[2rem] bg-white p-7 soft-shadow"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <span
+              aria-hidden="true"
+              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#f4f4f5] text-2xl"
+            >
+              {agent.avatar}
+            </span>
+            <div>
+              <h3 className="text-2xl font-semibold tracking-[-0.03em]">
+                {agent.name}
+              </h3>
+              <p className="mt-1 text-xs text-[#71717a]">
+                Independent seller agent · v{agent.version}
+              </p>
+            </div>
+          </div>
+          <button
+            className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b] transition hover:bg-[#0a0a0a] hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+
+        <p className="mt-5 text-sm leading-6 text-[#52525b]">
+          {agent.description}
+        </p>
+
+        <dl className="mt-6 grid gap-4 border-t hairline pt-6 sm:grid-cols-2">
+          <ProfileMetaRow label="Owner" value={agent.ownerName} />
+          <ProfileMetaRow
+            label="Wallet"
+            value={shortAddress(agent.ownerWallet)}
+          />
+          <ProfileMetaRow
+            label="Published"
+            value={formatMonthYear(agent.createdAt)}
+          />
+          <ProfileMetaRow label="Model" value={agent.model} />
+          <ProfileMetaRow
+            label="Average delivery"
+            value={`${agent.averageDeliveryDays} days`}
+          />
+          <ProfileMetaRow
+            label="Last hired"
+            value={
+              reputation.lastHiredAt
+                ? formatMonthYear(reputation.lastHiredAt)
+                : "Not hired yet"
+            }
+          />
+        </dl>
+
+        <div className="mt-6 flex flex-wrap gap-1.5">
+          {agent.capabilities.map((capability) => (
+            <span
+              className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+              key={capability}
+            >
+              {capability}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-6 grid grid-cols-3 gap-3 border-t hairline pt-6">
+          <div>
+            <p className="text-2xl font-semibold tracking-[-0.03em]">
+              {reputation.jobsCompleted}
+            </p>
+            <p className="mt-1 text-xs text-[#71717a]">Jobs completed</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold tracking-[-0.03em]">
+              {formatSol(reputation.totalEarnedSol)}
+            </p>
+            <p className="mt-1 text-xs text-[#71717a]">Total earned</p>
+          </div>
+          <div>
+            <p className="text-2xl font-semibold tracking-[-0.03em]">
+              {reputation.averageRating > 0
+                ? reputation.averageRating.toFixed(1)
+                : "—"}
+            </p>
+            <p className="mt-1 text-xs text-[#71717a]">Rating</p>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <p className="text-xs font-medium text-[#71717a]">
+            Earnings, last 6 months
+          </p>
+          <EarningsSparkline values={earnings} />
+        </div>
+
+        <div className="mt-6">
+          <p className="text-xs font-medium text-[#71717a]">Recent clients</p>
+          {recentClients.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {recentClients.map((client) => (
+                <span
+                  className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs text-[#27272a]"
+                  key={client}
+                >
+                  {client}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-[#71717a]">
+              No completed jobs yet — this seller is waiting for its first
+              client.
+            </p>
+          )}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function ProfileMetaRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-[#71717a]">{label}</dt>
+      <dd className="mt-1 text-sm font-medium text-[#27272a]">{value}</dd>
+    </div>
+  );
+}
+
+function EarningsSparkline({ values }: { values: number[] }) {
+  const max = Math.max(...values, 0);
+
+  if (max === 0) {
+    return (
+      <p className="mt-2 text-sm text-[#71717a]">No earnings recorded yet.</p>
+    );
+  }
+
+  const barWidth = 100 / values.length;
+
+  return (
+    <svg
+      aria-label="Earnings by month"
+      className="mt-2 h-14 w-full"
+      preserveAspectRatio="none"
+      role="img"
+      viewBox="0 0 100 40"
+    >
+      {values.map((value, index) => {
+        const height = max > 0 ? (value / max) * 36 : 0;
+
+        return (
+          <rect
+            fill={index === values.length - 1 ? "#0a0a0a" : "#d4d4d8"}
+            height={Math.max(height, value > 0 ? 2 : 0)}
+            key={index}
+            rx={1.5}
+            width={barWidth - 3}
+            x={index * barWidth + 1.5}
+            y={40 - Math.max(height, value > 0 ? 2 : 0)}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
 function GuidedResultFlow({
   activeStage,
   analyticsMetrics,
@@ -2010,6 +2262,7 @@ function GuidedResultFlow({
   onCancelPost,
   onCopyAsset,
   onEditAsset,
+  onOpenProfile,
   onPublishNow,
   onRate,
   onRelease,
@@ -2061,6 +2314,7 @@ function GuidedResultFlow({
     sourceId?: string;
     text?: string;
   }) => Promise<void>;
+  onOpenProfile: (id: SpecialistId) => void;
   onRate: (rating: number) => Promise<void>;
   onRelease: () => Promise<void>;
   onRetryPost: (postId: string) => Promise<void>;
@@ -2156,6 +2410,7 @@ function GuidedResultFlow({
           <SpecialistSelectionSection
             campaign={campaign}
             memory={memory}
+            onOpenProfile={onOpenProfile}
             reputation={reputation}
             setActiveStage={setActiveStage}
           />
@@ -2358,11 +2613,13 @@ function LaunchOpportunitySection({
 function SpecialistSelectionSection({
   campaign,
   memory,
+  onOpenProfile,
   reputation,
   setActiveStage
 }: {
   campaign: CampaignPlan;
   memory: CampaignMemoryRecord[];
+  onOpenProfile: (id: SpecialistId) => void;
   reputation: Record<SpecialistId, SpecialistReputation>;
   setActiveStage: (stage: FlowStage) => void;
 }) {
@@ -2398,14 +2655,35 @@ function SpecialistSelectionSection({
             >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <h3 className="text-lg font-semibold tracking-[-0.02em]">
-                      {agent.name}
-                    </h3>
-                    <span className="text-xs text-[#a1a1aa]">
-                      v{agent.version}
+                  <button
+                    className="group flex items-center gap-3 text-left"
+                    onClick={() => onOpenProfile(bid.specialistId)}
+                    type="button"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base ${
+                        selected ? "bg-white/10" : "bg-white"
+                      }`}
+                    >
+                      {agent.avatar}
                     </span>
-                  </div>
+                    <span className="flex flex-wrap items-baseline gap-2">
+                      <span className="text-lg font-semibold tracking-[-0.02em] underline-offset-4 group-hover:underline">
+                        {agent.name}
+                      </span>
+                      <span className="text-xs text-[#a1a1aa]">
+                        v{agent.version}
+                      </span>
+                      <span
+                        className={`text-xs ${
+                          selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                        }`}
+                      >
+                        View profile
+                      </span>
+                    </span>
+                  </button>
                   <p
                     className={`mt-1 text-xs ${
                       selected ? "text-[#a1a1aa]" : "text-[#71717a]"
@@ -3881,6 +4159,19 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", {
     day: "numeric",
     month: "short"
+  }).format(date);
+}
+
+function formatMonthYear(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Recently";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    month: "long",
+    year: "numeric"
   }).format(date);
 }
 

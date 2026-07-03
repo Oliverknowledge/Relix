@@ -6,6 +6,7 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       amountSol?: number;
+      client?: string;
       hiredAt?: string;
       signature?: string;
       specialistId?: SpecialistId;
@@ -20,6 +21,7 @@ export async function POST(request: Request) {
 
     const reputation = await recordJobCompletion({
       amountSol: body.amountSol,
+      client: body.client,
       hiredAt: body.hiredAt || new Date().toISOString(),
       signature: body.signature,
       specialistId: body.specialistId

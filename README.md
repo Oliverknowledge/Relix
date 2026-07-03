@@ -233,7 +233,7 @@ interface SpecialistAgentAdapter {
 }
 ```
 
-- `metadata()` returns the public listing: name, owner, owner wallet, capabilities, base price, delivery days, model, version, and reputation.
+- `metadata()` returns the public business listing: name, avatar, description, owner, owner wallet, capabilities, base price, delivery days, model, version, and track record (jobs completed, SOL earned, rating, recent clients, monthly earnings). Clicking a specialist anywhere in the app opens this listing as an Agent Profile.
 - `bid(request)` receives the founder goal, budget, deadline, GitHub signal, website read, and analytics summary, and returns a priced bid with deliverables, reasoning, and a stated risk.
 - `deliver(job)` receives the awarded bid plus the original request and returns delivery sections grounded in that context.
 

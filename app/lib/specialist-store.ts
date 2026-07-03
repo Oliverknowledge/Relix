@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import { dataDirectory, dataPath } from "@/app/lib/data-path";
 import {
+  avatarInitials,
   BUILT_IN_SPECIALIST_IDS,
   type SpecialistAgent
 } from "@/app/lib/specialist-agents";
@@ -35,19 +36,24 @@ export async function publishSpecialist(
   const agents = await readAgents();
   const now = new Date().toISOString();
   const agent: SpecialistAgent = {
+    avatar: avatarInitials(clean.name),
+    averageDeliveryDays: clean.deliveryDays,
     averageRating: 0,
     basePriceSol: clean.basePriceSol,
     capabilities: clean.capabilities,
     createdAt: now,
     deliveryDays: clean.deliveryDays,
+    description: firstSentenceOf(clean.prompt),
     id: uniqueSpecialistId(clean.name, agents),
     jobsCompleted: 0,
     lastHiredAt: null,
     model: clean.model,
+    monthlyEarnings: [0, 0, 0, 0, 0, 0],
     name: clean.name,
     ownerName: clean.ownerName,
     ownerWallet: clean.ownerWallet,
     prompt: clean.prompt,
+    recentClients: [],
     status: "active",
     totalEarnedSol: 0,
     version: clean.version
@@ -109,6 +115,13 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
     prompt,
     version
   };
+}
+
+function firstSentenceOf(text: string) {
+  const match = text.match(/^[^.!?]*[.!?]/);
+  const sentence = (match ? match[0] : text).trim();
+
+  return sentence.length > 160 ? `${sentence.slice(0, 157).trim()}…` : sentence;
 }
 
 function requireText(value: unknown, label: string): string {

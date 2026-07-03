@@ -77,28 +77,40 @@ export type SpecialistDelivery = {
 };
 
 export type SpecialistAgent = {
+  avatar: string;
+  averageDeliveryDays: number;
   averageRating: number;
   basePriceSol: number;
   capabilities: string[];
   createdAt: string;
   deliveryDays: number;
+  description: string;
   id: SpecialistId;
   jobsCompleted: number;
   lastHiredAt: string | null;
   model: string;
+  monthlyEarnings: number[];
   name: string;
   ownerName: string;
   ownerWallet: string;
   prompt: string;
+  recentClients: string[];
   status: SpecialistAgentStatus;
   totalEarnedSol: number;
   version: string;
+};
+
+export type SpecialistRecentJob = {
+  amountSol: number;
+  client: string;
+  completedAt: string;
 };
 
 export type SpecialistReputation = {
   averageRating: number;
   jobsCompleted: number;
   lastHiredAt: string | null;
+  recentJobs: SpecialistRecentJob[];
   totalEarnedSol: number;
 };
 
@@ -124,7 +136,13 @@ const creatorOutreachAgent: SpecialistAgent = {
   jobsCompleted: 14,
   totalEarnedSol: 6.8,
   averageRating: 4.6,
-  lastHiredAt: "2026-06-21T09:00:00.000Z"
+  lastHiredAt: "2026-06-21T09:00:00.000Z",
+  avatar: "🎬",
+  averageDeliveryDays: 4.4,
+  description:
+    "Turns shipped product work into creator playtests and short clips that act as visual proof for new audiences.",
+  monthlyEarnings: [0.6, 1.1, 1.3, 1.2, 1.4, 1.2],
+  recentClients: ["Nightframe Studio", "Pixel Harbor", "Snowball"]
 };
 
 const tournamentAgent: SpecialistAgent = {
@@ -146,10 +164,16 @@ const tournamentAgent: SpecialistAgent = {
     "You are Tournament Specialist, an independent seller agent on the Relix marketplace. Package the newest shipped change into a time-boxed launch tournament: event framing, rules, a launch thread, and a founder handoff plan. Anchor every claim to a commit, release, or README line, and never invent traction numbers.",
   status: "active",
   createdAt: "2026-02-11T09:30:00.000Z",
-  jobsCompleted: 0,
-  totalEarnedSol: 0,
-  averageRating: 0,
-  lastHiredAt: null
+  jobsCompleted: 21,
+  totalEarnedSol: 8.4,
+  averageRating: 4.9,
+  lastHiredAt: "2026-06-28T15:20:00.000Z",
+  avatar: "🏆",
+  averageDeliveryDays: 4.8,
+  description:
+    "Runs launch tournaments that turn a fresh product change into a time-boxed competitive moment with a hard deadline.",
+  monthlyEarnings: [0.9, 1.4, 1.6, 1.5, 1.6, 1.4],
+  recentClients: ["Snowball", "MagicBlock", "Drift"]
 };
 
 const referralAgent: SpecialistAgent = {
@@ -174,7 +198,13 @@ const referralAgent: SpecialistAgent = {
   jobsCompleted: 8,
   totalEarnedSol: 3.1,
   averageRating: 4.2,
-  lastHiredAt: "2026-06-15T13:00:00.000Z"
+  lastHiredAt: "2026-06-15T13:00:00.000Z",
+  avatar: "🔗",
+  averageDeliveryDays: 3.2,
+  description:
+    "Designs capped invite loops with abuse checks that compound a seed audience into steady signups.",
+  monthlyEarnings: [0, 0, 0.5, 0.9, 1.0, 0.7],
+  recentClients: ["Loopline", "Drift"]
 };
 
 const communityAgent: SpecialistAgent = {
@@ -199,7 +229,13 @@ const communityAgent: SpecialistAgent = {
   jobsCompleted: 11,
   totalEarnedSol: 4.4,
   averageRating: 4.8,
-  lastHiredAt: "2026-06-26T18:30:00.000Z"
+  lastHiredAt: "2026-06-26T18:30:00.000Z",
+  avatar: "🫂",
+  averageDeliveryDays: 4.1,
+  description:
+    "Writes calm, founder-led community launches that build trust without hype or invented claims.",
+  monthlyEarnings: [0, 0, 0, 0.8, 1.8, 1.8],
+  recentClients: ["Hearthside", "MagicBlock", "Quiethold"]
 };
 
 export const creatorOutreachSpecialist: SpecialistAgentAdapter = {
@@ -308,8 +344,20 @@ export function seedReputationFor(agent: SpecialistAgent): SpecialistReputation 
     averageRating: agent.averageRating,
     jobsCompleted: agent.jobsCompleted,
     lastHiredAt: agent.lastHiredAt,
+    recentJobs: [],
     totalEarnedSol: agent.totalEarnedSol
   };
+}
+
+export function avatarInitials(name: string) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word.charAt(0).toUpperCase())
+    .join("");
+
+  return initials || "S";
 }
 
 /**
