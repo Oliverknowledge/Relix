@@ -924,21 +924,21 @@ export default function Home() {
             : "Budget fits selected specialist",
         "done"
       );
-      await addLog("Searching marketplace...", "active", 680);
+      await addLog("Searching Marketplace...", "active", 680);
+      await addLog("Querying registered seller agents...", "active", 640);
       await addLog(
-        `${nextCampaign.bids.length} seller agents found`,
+        `${nextCampaign.bids.length} seller agents available`,
         "done"
       );
-      await addLog("Requesting bids...", "active", 760);
+      await addLog("Sending job request...", "active", 700);
+      await addLog("Waiting for bids...", "active", 760);
 
       for (let index = 0; index < nextCampaign.bids.length; index += 1) {
         const bid = nextCampaign.bids[index];
 
-        await sleep(360);
+        await sleep(420 + index * 120);
         await addLog(
-          `${specialistDisplayName(bid)} bid ${formatSol(bid.priceSol)} · ${
-            bid.deliveryDays
-          } days`,
+          `${specialistDisplayName(bid)} responded`,
           "done",
           320
         );
@@ -2625,121 +2625,136 @@ function SpecialistSelectionSection({
 }) {
   const previousCampaign = memory[0];
   const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
+  const sortedBids = [...campaign.bids].sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
 
   return (
     <section className="mx-auto max-w-3xl">
       <SectionHeading
-        kicker="Specialist marketplace"
-        title={`${campaign.bids.length} seller agents submitted bids.`}
+        kicker="Marketplace responses"
+        title={`${campaign.bids.length} seller agents responded.`}
       />
       <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
-        The Growth Employee is the buyer. Specialist agents are sellers. They
-        compete for the job and are paid on Solana after delivery.
+        Relix sent one job request to registered seller agents. Each seller
+        returned terms, a wallet, and a short pitch for the work.
       </p>
 
-      <div className="mt-8 grid gap-3">
-        {campaign.bids.map((bid) => {
-          const agent = getSpecialistAgent(bid.specialistId);
-          const selected = bid.id === campaign.winningBid.id;
-          const agentReputation =
-            reputation[bid.specialistId] || seedReputationFor(agent);
+      <div className="mt-8 rounded-[2rem] bg-[#f4f4f5] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/5 pb-4">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#71717a]">
+              Job request
+            </p>
+            <p className="mt-1 text-sm font-medium text-[#18181b]">
+              {campaign.id}
+            </p>
+          </div>
+          <p className="rounded-full bg-white px-3 py-1.5 text-xs text-[#52525b]">
+            {campaign.bids.length} responses
+          </p>
+        </div>
 
-          return (
-            <article
-              className={`rounded-3xl p-5 transition ${
-                selected
-                  ? "bg-[#0a0a0a] text-white"
-                  : "bg-[#f4f4f5] text-[#0a0a0a]"
-              }`}
-              key={bid.id}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <button
-                    className="group flex items-center gap-3 text-left"
-                    onClick={() => onOpenProfile(bid.specialistId)}
-                    type="button"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base ${
-                        selected ? "bg-white/10" : "bg-white"
+        <div className="mt-4 grid gap-3">
+          {sortedBids.map((bid, index) => {
+            const agent = getSpecialistAgent(bid.specialistId);
+            const selected = bid.id === campaign.winningBid.id;
+            const agentReputation =
+              reputation[bid.specialistId] || seedReputationFor(agent);
+
+            return (
+              <article
+                className={`rounded-[1.5rem] p-4 transition ${
+                  selected
+                    ? "bg-[#0a0a0a] text-white"
+                    : "bg-white text-[#0a0a0a]"
+                }`}
+                key={bid.id}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={`text-[11px] font-medium uppercase tracking-[0.14em] ${
+                        selected ? "text-[#a1a1aa]" : "text-[#71717a]"
                       }`}
                     >
-                      {agent.avatar}
-                    </span>
-                    <span className="flex flex-wrap items-baseline gap-2">
-                      <span className="text-lg font-semibold tracking-[-0.02em] underline-offset-4 group-hover:underline">
-                        {agent.name}
-                      </span>
-                      <span className="text-xs text-[#a1a1aa]">
-                        v{agent.version}
-                      </span>
+                      Response {index + 1}
+                    </p>
+                    <button
+                      className="group mt-2 flex min-w-0 items-center gap-3 text-left"
+                      onClick={() => onOpenProfile(bid.specialistId)}
+                      type="button"
+                    >
                       <span
-                        className={`text-xs ${
-                          selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                        aria-hidden="true"
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base ${
+                          selected ? "bg-white/10" : "bg-white"
                         }`}
                       >
-                        View profile
+                        {agent.avatar}
                       </span>
-                    </span>
-                  </button>
-                  <p
-                    className={`mt-1 text-xs ${
-                      selected ? "text-[#a1a1aa]" : "text-[#71717a]"
-                    }`}
-                  >
-                    {agent.ownerName} · {shortAddress(agent.ownerWallet)}
-                  </p>
-                  <p
-                    className={`mt-1 text-xs ${
-                      selected ? "text-[#a1a1aa]" : "text-[#71717a]"
-                    }`}
-                  >
-                    {reputationLine(agentReputation)}
-                  </p>
-                  <p
-                    className={`mt-2 max-w-xl text-sm leading-6 ${
-                      selected ? "text-[#d4d4d8]" : "text-[#52525b]"
-                    }`}
-                  >
-                    {selected ? bid.reasoning : firstSentence(bid.reasoning)}
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {agent.capabilities.map((capability) => (
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
-                          selected
-                            ? "bg-white/10 text-[#e4e4e7]"
-                            : "bg-white text-[#52525b]"
-                        }`}
-                        key={capability}
-                      >
-                        {capability}
+                      <span className="min-w-0">
+                        <span className="text-lg font-semibold tracking-[-0.02em] underline-offset-4 group-hover:underline">
+                          {agent.name}
+                        </span>
+                        <span
+                          className={`ml-2 text-xs ${
+                            selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                          }`}
+                        >
+                          v{agent.version}
+                        </span>
                       </span>
-                    ))}
+                    </button>
+                    <p
+                      className={`mt-2 max-w-xl text-sm leading-6 ${
+                        selected ? "text-[#d4d4d8]" : "text-[#52525b]"
+                      }`}
+                    >
+                      {marketplacePitch(bid)}
+                    </p>
+                    <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+                      <BidMeta
+                        dark={selected}
+                        label="Owner"
+                        value={agent.ownerName}
+                      />
+                      <BidMeta
+                        dark={selected}
+                        label="Wallet"
+                        value={agent.ownerWallet}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid shrink-0 grid-cols-2 gap-2 text-right text-xs sm:min-w-40">
+                    <BidMeta
+                      dark={selected}
+                      label="Price"
+                      value={formatSol(bid.priceSol)}
+                    />
+                    <BidMeta
+                      dark={selected}
+                      label="Delivery"
+                      value={`${bid.deliveryDays} days`}
+                    />
                   </div>
                 </div>
-                <div
-                  className={`flex shrink-0 gap-2 text-xs ${
-                    selected ? "text-[#e4e4e7]" : "text-[#71717a]"
-                  }`}
-                >
-                  <span>{formatSol(bid.priceSol)}</span>
-                  <span>·</span>
-                  <span>{bid.deliveryDays} days</span>
-                </div>
-              </div>
 
-              {selected ? (
-                <div className="mt-5 grid gap-3 border-t border-white/15 pt-5 text-sm leading-6 text-[#e4e4e7]">
-                  <p>Deliverables: {bid.deliverables.join(" · ")}</p>
-                  <p>Risk: {bid.risk}</p>
-                </div>
-              ) : null}
-            </article>
-          );
-        })}
+                {selected ? (
+                  <div className="mt-5 grid gap-3 border-t border-white/15 pt-5 text-sm leading-6 text-[#e4e4e7]">
+                    <p>{bid.reasoning}</p>
+                    <p>Deliverables: {bid.deliverables.join(" · ")}</p>
+                    <p>Risk: {bid.risk}</p>
+                    <p className="text-xs text-[#a1a1aa]">
+                      {reputationLine(agentReputation)}
+                    </p>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
       </div>
 
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
@@ -2770,6 +2785,29 @@ function SpecialistSelectionSection({
         </button>
       </div>
     </section>
+  );
+}
+
+function BidMeta({
+  dark,
+  label,
+  value
+}: {
+  dark: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div>
+      <p className={dark ? "text-[#a1a1aa]" : "text-[#71717a]"}>{label}</p>
+      <p
+        className={`mt-1 break-all font-medium ${
+          dark ? "text-[#f4f4f5]" : "text-[#18181b]"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 
@@ -4112,6 +4150,12 @@ function firstSentence(text: string) {
   const match = text.match(/^[^.!?]*[.!?]/);
 
   return match ? match[0].trim() : text;
+}
+
+function marketplacePitch(bid: Pick<Bid, "reasoning">) {
+  const pitch = firstSentence(bid.reasoning).replace(/^"(.+)"$/, "$1");
+
+  return pitch.length > 170 ? `${pitch.slice(0, 167).trim()}...` : pitch;
 }
 
 function flowStagePosition(stage: FlowStage) {
