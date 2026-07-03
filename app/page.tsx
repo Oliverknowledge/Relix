@@ -1594,7 +1594,7 @@ function SetupSection({
   xStatus: XConnectionStatus;
 }) {
   return (
-    <section className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 pb-24 pt-32 sm:px-8">
+    <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-5 pb-24 pt-32 sm:px-8">
       {activeCampaignSnapshot ? (
         <MorningUpdate
           onResume={onResumeCampaign}
@@ -1602,25 +1602,26 @@ function SetupSection({
         />
       ) : null}
 
-      <header className="text-center">
-        <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
-          Hire your first AI Growth Employee.
-        </h1>
-        <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
-          Connect your product. Set a goal. Relix hires specialist agents,
-          manages your growth budget, executes approved campaign actions,
-          measures results, and keeps working until the goal is reached or the
-          budget is exhausted.
-        </p>
-      </header>
+      <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
+        <header className="text-center lg:text-left">
+          <h1 className="text-4xl font-semibold leading-[1.02] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl lg:text-6xl">
+            Hire your first AI Growth Employee.
+          </h1>
+          <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg lg:mx-0">
+            Connect your product. Set a goal. Relix hires specialist agents,
+            manages your growth budget, executes approved campaign actions,
+            measures results, and keeps working until the goal is reached or the
+            budget is exhausted.
+          </p>
+        </header>
 
-      <form
-        className="mt-10 grid gap-5 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:mt-12 sm:p-8"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
+        <form
+          className="grid gap-5 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
           <GitHubConnection
             githubStatus={githubStatus}
             loading={loading}
@@ -1741,7 +1742,8 @@ function SetupSection({
               {integrationError}
             </p>
           ) : null}
-      </form>
+        </form>
+      </div>
     </section>
   );
 }
