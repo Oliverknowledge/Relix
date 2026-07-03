@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AgentProfileModal,
-  SpecialistDirectory,
   allKnownSpecialists,
   reputationFromAgent
 } from "@/app/components/specialist-ui";
+import { formatSol } from "@/app/lib/campaign";
 import {
   registerPublishedSpecialists,
   seedReputationFor,
@@ -15,6 +15,15 @@ import {
   type SpecialistId,
   type SpecialistReputation
 } from "@/app/lib/specialist-agents";
+
+type SortOption = "most-hired" | "highest-rated" | "newest" | "most-earned";
+
+const sortOptions: Array<{ label: string; value: SortOption }> = [
+  { label: "Most hired", value: "most-hired" },
+  { label: "Highest rated", value: "highest-rated" },
+  { label: "Newest", value: "newest" },
+  { label: "Most SOL earned", value: "most-earned" }
+];
 
 export default function MarketplacePage() {
   const [publishedSpecialists, setPublishedSpecialists] = useState<
@@ -30,9 +39,15 @@ export default function MarketplacePage() {
   const [profileAgent, setProfileAgent] = useState<SpecialistAgent | null>(
     null
   );
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortOption>("most-hired");
   const agents = useMemo(
     () => allKnownSpecialists(publishedSpecialists),
     [publishedSpecialists]
+  );
+  const visibleAgents = useMemo(
+    () => sortAgents(filterAgents(agents, query), reputation, sort),
+    [agents, query, reputation, sort]
   );
 
   const loadPublishedSpecialists = useCallback(async () => {
@@ -88,21 +103,59 @@ export default function MarketplacePage() {
   return (
     <main className="mx-auto max-w-5xl px-5 pb-24 pt-36 sm:px-8">
       <section className="max-w-3xl">
-        <p className="text-sm font-medium text-[#71717a]">Marketplace</p>
-        <h1 className="mt-4 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl">
-          Specialist seller agents.
+        <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl">
+          Marketplace
         </h1>
         <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b]">
-          Browse independent agents that can bid for founder growth work. Each
-          seller has an owner, wallet, price, delivery window, and track record.
+          Independent specialist agents compete for paid growth work.
         </p>
       </section>
 
-      <SpecialistDirectory
-        agents={agents}
-        onOpenProfile={setProfileAgent}
-        reputation={reputation}
-      />
+      <div className="mt-12 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <label className="grid gap-2 sm:min-w-80">
+          <span className="text-sm font-medium text-[#18181b]">
+            Search agents
+          </span>
+          <input
+            className="field h-12 px-4 text-sm"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search by name, owner, model, capability"
+            value={query}
+          />
+        </label>
+
+        <label className="grid gap-2 sm:w-56">
+          <span className="text-sm font-medium text-[#18181b]">Sort</span>
+          <select
+            className="field h-12 px-4 text-sm"
+            onChange={(event) => setSort(event.target.value as SortOption)}
+            value={sort}
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-8 grid gap-4">
+        {visibleAgents.length > 0 ? (
+          visibleAgents.map((agent) => (
+            <MarketplaceAgentCard
+              agent={agent}
+              key={agent.id}
+              onOpenProfile={setProfileAgent}
+              reputation={reputation[agent.id] || reputationFromAgent(agent)}
+            />
+          ))
+        ) : (
+          <p className="rounded-[2rem] bg-[#f4f4f5] p-6 text-sm leading-6 text-[#71717a]">
+            No specialist agents match that search.
+          </p>
+        )}
+      </div>
 
       {profileAgent ? (
         <AgentProfileModal
@@ -113,4 +166,173 @@ export default function MarketplacePage() {
       ) : null}
     </main>
   );
+}
+
+function MarketplaceAgentCard({
+  agent,
+  onOpenProfile,
+  reputation
+}: {
+  agent: SpecialistAgent;
+  onOpenProfile: (agent: SpecialistAgent) => void;
+  reputation: SpecialistReputation;
+}) {
+  const recentClients = [
+    ...reputation.recentJobs.map((job) => job.client),
+    ...agent.recentClients
+  ]
+    .filter((client, index, all) => all.indexOf(client) === index)
+    .slice(0, 4);
+
+  return (
+    <article className="rounded-[2rem] bg-[#f4f4f5] p-5 transition hover:bg-[#ededee]">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 gap-4">
+          <span
+            aria-hidden="true"
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-2xl"
+          >
+            {agent.avatar}
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-2xl font-semibold tracking-[-0.03em] text-[#0a0a0a]">
+              {agent.name}
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#52525b]">
+              {agent.description}
+            </p>
+          </div>
+        </div>
+
+        <button
+          className="h-11 w-full rounded-full bg-[#0a0a0a] px-5 text-sm font-medium text-white transition hover:bg-[#27272a] sm:w-fit"
+          onClick={() => onOpenProfile(agent)}
+          type="button"
+        >
+          View Profile
+        </button>
+      </div>
+
+      <div className="mt-6 grid gap-4 border-t hairline pt-6 sm:grid-cols-2 lg:grid-cols-4">
+        <MarketplaceMeta label="Owner" value={agent.ownerName} />
+        <MarketplaceMeta label="Wallet" value={agent.ownerWallet} />
+        <MarketplaceMeta label="Model" value={agent.model} />
+        <MarketplaceMeta label="Version" value={`v${agent.version}`} />
+        <MarketplaceMeta
+          label="Rating"
+          value={
+            reputation.averageRating > 0
+              ? `${reputation.averageRating.toFixed(1)}/5`
+              : "New"
+          }
+        />
+        <MarketplaceMeta
+          label="Jobs completed"
+          value={String(reputation.jobsCompleted)}
+        />
+        <MarketplaceMeta
+          label="SOL earned"
+          value={formatSol(reputation.totalEarnedSol)}
+        />
+        <MarketplaceMeta
+          label="Average delivery"
+          value={`${agent.averageDeliveryDays} days`}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-medium text-[#71717a]">Capabilities</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {agent.capabilities.map((capability) => (
+              <span
+                className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+                key={capability}
+              >
+                {capability}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-medium text-[#71717a]">Recent clients</p>
+          {recentClients.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {recentClients.map((client) => (
+                <span
+                  className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+                  key={client}
+                >
+                  {client}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-[#71717a]">No clients yet.</p>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function MarketplaceMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-[#71717a]">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium leading-6 text-[#18181b]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function filterAgents(agents: SpecialistAgent[], query: string) {
+  const term = query.trim().toLowerCase();
+
+  if (!term) {
+    return agents;
+  }
+
+  return agents.filter((agent) =>
+    [
+      agent.name,
+      agent.ownerName,
+      agent.ownerWallet,
+      agent.model,
+      agent.version,
+      agent.description,
+      ...agent.capabilities,
+      ...agent.recentClients
+    ]
+      .join(" ")
+      .toLowerCase()
+      .includes(term)
+  );
+}
+
+function sortAgents(
+  agents: SpecialistAgent[],
+  reputation: Record<SpecialistId, SpecialistReputation>,
+  sort: SortOption
+) {
+  return [...agents].sort((a, b) => {
+    const aReputation = reputation[a.id] || reputationFromAgent(a);
+    const bReputation = reputation[b.id] || reputationFromAgent(b);
+
+    if (sort === "highest-rated") {
+      return bReputation.averageRating - aReputation.averageRating;
+    }
+
+    if (sort === "newest") {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+
+    if (sort === "most-earned") {
+      return bReputation.totalEarnedSol - aReputation.totalEarnedSol;
+    }
+
+    return bReputation.jobsCompleted - aReputation.jobsCompleted;
+  });
 }
