@@ -1621,8 +1621,9 @@ function SetupSection({
       ) : null}
 
       <div className="grid items-start gap-12 lg:grid-cols-2 lg:gap-16">
-        <header>
-          <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
+        <header className="lg:pt-10">
+          <p className="text-sm font-medium text-[#71717a]">Hire</p>
+          <h1 className="mt-3 text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
             Hire your first AI Growth Employee.
           </h1>
           <p className="mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
