@@ -125,7 +125,7 @@ export function PublishSpecialistForm({
     setValues((current) => ({ ...current, [field]: value }));
 
   return (
-    <div className="mt-10 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:mt-12 sm:p-8">
+    <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
       <form
         className="grid gap-4"
         onSubmit={(event) => {

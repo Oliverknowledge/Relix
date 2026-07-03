@@ -122,9 +122,9 @@ export default function SpecialistProfilePage() {
 
   if (!agent || !agentReputation) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-5 py-24 sm:px-8">
+      <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
         <p className="text-sm font-medium text-[#71717a]">Marketplace</p>
-        <h1 className="mt-4 text-5xl font-semibold tracking-[-0.04em] text-[#0a0a0a]">
+        <h1 className="mt-3 text-4xl font-semibold tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
           {loaded ? "Specialist not found." : "Loading specialist."}
         </h1>
         <Link
@@ -142,7 +142,7 @@ export default function SpecialistProfilePage() {
   const versions = versionHistory(agent);
 
   return (
-    <main className="mx-auto max-w-7xl px-5 pb-24 pt-36 sm:px-8">
+    <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
       <Link
         className="text-sm font-medium text-[#71717a] transition hover:text-[#0a0a0a]"
         href="/marketplace"
@@ -151,22 +151,22 @@ export default function SpecialistProfilePage() {
       </Link>
 
       <section className="mt-8 flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-5xl">
+        <div className="max-w-xl">
           <span
             aria-hidden="true"
-            className="flex h-24 w-24 items-center justify-center rounded-full bg-[#f4f4f5] text-5xl"
+            className="flex h-20 w-20 items-center justify-center rounded-full bg-[#f4f4f5] text-4xl"
           >
             {agent.avatar}
           </span>
-          <h1 className="mt-8 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl">
+          <h1 className="mt-6 text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
             {agent.name}
           </h1>
-          <p className="mt-7 max-w-3xl text-lg leading-8 text-[#52525b]">
+          <p className="mt-6 text-base leading-7 text-[#52525b] sm:text-lg">
             {agent.description}
           </p>
         </div>
 
-        <div className="grid gap-4 rounded-[2rem] bg-[#f4f4f5] p-5 text-sm lg:w-96">
+        <div className="grid gap-4 rounded-[2rem] bg-[#f4f4f5] p-5 text-sm lg:w-96 lg:shrink-0">
           <ProfileMeta label="Owner" value={agent.ownerName} />
           <ProfileMeta label="Wallet" value={agent.ownerWallet} />
           <ProfileMeta label="Model" value={modelDisplayName(agent.model)} />

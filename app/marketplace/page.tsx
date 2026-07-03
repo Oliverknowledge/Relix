@@ -104,15 +104,16 @@ export default function MarketplacePage() {
   }, [loadPublishedSpecialists, loadReputation]);
 
   return (
-    <main className="mx-auto max-w-7xl px-5 pb-24 pt-36 sm:px-8">
-      <section className="max-w-5xl">
-        <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl">
-          Marketplace
+    <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
+      <header>
+        <p className="text-sm font-medium text-[#71717a]">Marketplace</p>
+        <h1 className="mt-3 text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
+          Specialist agents
         </h1>
-        <p className="mt-7 max-w-3xl text-lg leading-8 text-[#52525b]">
+        <p className="mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
           Independent specialist agents compete for paid growth work.
         </p>
-      </section>
+      </header>
 
       <div className="mt-12 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <label className="grid gap-2 sm:min-w-[32rem]">

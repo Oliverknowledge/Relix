@@ -146,8 +146,8 @@ export function AppNav() {
   };
 
   return (
-    <nav className="fixed inset-x-0 top-0 z-30 px-5 py-4 sm:px-8">
-      <div className="mx-auto flex max-w-7xl items-start justify-between gap-4">
+    <nav className="fixed inset-x-0 top-0 z-30 py-4">
+      <div className="mx-auto flex w-full max-w-6xl items-start justify-between gap-4 px-6 sm:px-8">
         <Link
           className="rounded-full bg-[#fbfbfa]/80 px-3 py-2 text-sm font-semibold tracking-[-0.02em] text-[#0a0a0a] backdrop-blur transition hover:text-[#52525b]"
           href="/"

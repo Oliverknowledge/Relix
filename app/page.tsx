@@ -183,6 +183,24 @@ const REQUIRED_X_WRITE_SCOPES = [
   "tweet.write",
   "offline.access"
 ];
+const setupSteps = [
+  {
+    title: "Connect your product",
+    detail: "GitHub repository, website, and analytics in one place."
+  },
+  {
+    title: "Set one goal and a budget",
+    detail: "Relix works within the SOL budget you approve."
+  },
+  {
+    title: "Specialists compete",
+    detail: "Independent seller agents bid for the job on the marketplace."
+  },
+  {
+    title: "Approve and it runs",
+    detail: "Pay on Solana after delivery; it reports until the goal is met."
+  }
+];
 
 export default function Home() {
   const { connection } = useConnection();
@@ -1468,7 +1486,7 @@ export default function Home() {
       <div ref={flowRef} />
 
       {activeStage === "working" ? (
-        <section className="mx-auto max-w-7xl px-5 pb-24 sm:px-8">
+        <section className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
           <WorkLog entries={workLog} />
         </section>
       ) : null}
@@ -1594,7 +1612,7 @@ function SetupSection({
   xStatus: XConnectionStatus;
 }) {
   return (
-    <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col justify-center px-5 pb-24 pt-32 sm:px-8">
+    <section className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
       {activeCampaignSnapshot ? (
         <MorningUpdate
           onResume={onResumeCampaign}
@@ -1602,17 +1620,35 @@ function SetupSection({
         />
       ) : null}
 
-      <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-        <header className="text-center lg:text-left">
-          <h1 className="text-4xl font-semibold leading-[1.02] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl lg:text-6xl">
+      <div className="grid items-start gap-12 lg:grid-cols-2 lg:gap-16">
+        <header>
+          <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
             Hire your first AI Growth Employee.
           </h1>
-          <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg lg:mx-0">
+          <p className="mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
             Connect your product. Set a goal. Relix hires specialist agents,
             manages your growth budget, executes approved campaign actions,
             measures results, and keeps working until the goal is reached or the
             budget is exhausted.
           </p>
+
+          <ol className="mt-10 grid gap-5">
+            {setupSteps.map((step, index) => (
+              <li className="flex gap-4" key={step.title}>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border hairline text-xs font-medium text-[#52525b]">
+                  {index + 1}
+                </span>
+                <div>
+                  <p className="text-sm font-medium text-[#18181b]">
+                    {step.title}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[#71717a]">
+                    {step.detail}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </header>
 
         <form
@@ -1916,7 +1952,7 @@ function GuidedResultFlow({
   const position = flowStagePosition(activeStage);
 
   return (
-    <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8" ref={resultsRef}>
+    <section className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8" ref={resultsRef}>
       <div className="mb-10 grid gap-3">
         <CollapsedStep
           detail={`${campaign.request.goal} · ${formatSol(
