@@ -4,6 +4,7 @@ import {
   BUILT_IN_SPECIALIST_IDS,
   type SpecialistAgent
 } from "@/app/lib/specialist-agents";
+import { parseSolanaAddress } from "@/app/lib/wallet";
 
 export type PublishSpecialistInput = {
   basePriceSol: number;
@@ -20,7 +21,6 @@ export type PublishSpecialistInput = {
 const dataFile = dataPath("published-specialists.json");
 const MAX_PRICE_SOL = 50;
 const MAX_DELIVERY_DAYS = 60;
-const WALLET_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 export async function listPublishedSpecialists(): Promise<SpecialistAgent[]> {
   const agents = await readAgents();
@@ -72,8 +72,10 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
   const basePriceSol = Number(input.basePriceSol);
   const deliveryDays = Number(input.deliveryDays);
 
-  if (!WALLET_PATTERN.test(ownerWallet)) {
-    throw new Error("Owner wallet must be a valid Solana address.");
+  if (!parseSolanaAddress(ownerWallet)) {
+    throw new Error(
+      "Owner wallet must be a valid Solana public key. Settlement is paid to this address on devnet."
+    );
   }
 
   if (capabilities.length === 0) {

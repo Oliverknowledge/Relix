@@ -11,7 +11,6 @@ import {
 } from "@solana/wallet-adapter-react";
 import {
   LAMPORTS_PER_SOL,
-  PublicKey,
   SystemProgram,
   Transaction
 } from "@solana/web3.js";
@@ -71,6 +70,7 @@ import {
   FAUCET_URL,
   LOW_BALANCE_SOL,
   explorerUrl,
+  parseSolanaAddress,
   settlementAmountFor
 } from "@/app/lib/wallet";
 import type { WebsiteAnalysis } from "@/app/lib/website-analysis";
@@ -639,9 +639,17 @@ export default function Home() {
     const winnerAgent = getSpecialistAgent(winningBid.specialistId);
     const settlementSol = settlementAmountFor(winningBid.priceSol);
     const settlementLamports = Math.round(settlementSol * LAMPORTS_PER_SOL);
+    const ownerWalletKey = parseSolanaAddress(winnerAgent.ownerWallet);
 
     if (campaign.budgetStatus.blocked) {
       setReleaseError(campaign.budgetStatus.message);
+      return;
+    }
+
+    if (!ownerWalletKey) {
+      setReleaseError(
+        `${winnerAgent.name} lists an invalid Solana owner wallet, so payment cannot be released. The owner needs to republish the agent with a valid address.`
+      );
       return;
     }
 
@@ -671,7 +679,7 @@ export default function Home() {
       }).add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(winnerAgent.ownerWallet),
+          toPubkey: ownerWalletKey,
           lamports: settlementLamports
         })
       );
@@ -3357,6 +3365,7 @@ function EscrowSection({
   onRelease: () => Promise<void>;
 }) {
   const winnerAgent = getSpecialistAgent(winningBid.specialistId);
+  const ownerWalletValid = parseSolanaAddress(winnerAgent.ownerWallet) !== null;
   const settlementSol = settlementAmountFor(winningBid.priceSol);
   const remainingBudgetAfterPayment = payment
     ? budgetStatus.remainingBudgetSol
@@ -3447,7 +3456,10 @@ function EscrowSection({
             </p>
             <ProofRow label="Status" value={payment.status} />
             <ProofRow label="Amount" value={formatSol(payment.settlementSol)} />
-            <ProofRow label="Agent wallet" value={payment.agentWallet} />
+            <ProofRow
+              label={`Owner wallet (${winnerAgent.ownerName})`}
+              value={payment.agentWallet}
+            />
             <ProofRow label="Signature" value={payment.signature} />
             <a
               className="block truncate rounded-full bg-[#0a0a0a] px-5 py-3 text-center text-sm font-medium text-white transition hover:bg-[#27272a]"
@@ -3495,16 +3507,28 @@ function EscrowSection({
           <div className="mt-2 grid gap-4">
             <div className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm text-[#52525b]">
               <p>
-                {formatSol(settlementSol)} will move to {winnerAgent.name},
-                owned by {winnerAgent.ownerName}.
+                Payment will be released to {winnerAgent.name} owned by{" "}
+                {winnerAgent.ownerName}.
               </p>
-              <p className="mt-2 break-all text-xs text-[#71717a]">
-                {winnerAgent.ownerWallet}
+              <p className="mt-2 text-xs text-[#71717a]">
+                Amount: {formatSol(settlementSol)} on Solana devnet.
               </p>
+              <p className="mt-1 break-all text-xs text-[#71717a]">
+                Owner wallet: {winnerAgent.ownerWallet}
+              </p>
+              {!ownerWalletValid ? (
+                <p className="mt-2 text-xs leading-5 text-[#b91c1c]">
+                  This owner wallet is not a valid Solana public key, so
+                  payment is disabled. The owner needs to republish the agent
+                  with a valid address.
+                </p>
+              ) : null}
             </div>
             <button
               className="rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-              disabled={!connected || budgetStatus.blocked || isBusy}
+              disabled={
+                !connected || budgetStatus.blocked || isBusy || !ownerWalletValid
+              }
               onClick={() => void onRelease()}
               type="button"
             >
