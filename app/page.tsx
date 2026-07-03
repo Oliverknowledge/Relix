@@ -1,13 +1,8 @@
 "use client";
 
 import {
-  WalletReadyState,
-  type WalletName
-} from "@solana/wallet-adapter-base";
-import {
   useConnection,
-  useWallet,
-  type Wallet
+  useWallet
 } from "@solana/wallet-adapter-react";
 import {
   LAMPORTS_PER_SOL,
@@ -16,15 +11,14 @@ import {
 } from "@solana/web3.js";
 import {
   type Dispatch,
-  type ReactNode,
   type RefObject,
   type SetStateAction,
   useCallback,
   useEffect,
   useRef,
-  useState,
-  useSyncExternalStore
+  useState
 } from "react";
+import { AgentProfileModal } from "@/app/components/specialist-ui";
 import {
   createCampaignPlan,
   defaultFounderRequest,
@@ -55,7 +49,6 @@ import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
 import {
   getSpecialistAdapter,
   getSpecialistAgent,
-  registerPublishedSpecialist,
   registerPublishedSpecialists,
   seedReputationFor,
   specialistRegistry,
@@ -67,8 +60,6 @@ import {
 import type { RepositoryAnalysis } from "@/app/lib/repository-analysis";
 import { analyzeRepository } from "@/app/lib/repository-analysis";
 import {
-  FAUCET_URL,
-  LOW_BALANCE_SOL,
   explorerUrl,
   parseSolanaAddress,
   settlementAmountFor
@@ -78,10 +69,6 @@ import type {
   ScheduledXPost,
   XConnectionStatus
 } from "@/app/lib/x-types";
-
-const subscribeToClient = () => () => {};
-const getClientSnapshot = () => true;
-const getServerSnapshot = () => false;
 
 const sleep = (ms: number) =>
   new Promise((resolve) => {
@@ -123,30 +110,6 @@ type DeliveryAssetBlock = {
   text: string;
 };
 
-type PublishSpecialistFormValues = {
-  basePriceSol: string;
-  capabilities: string;
-  deliveryDays: string;
-  model: string;
-  name: string;
-  ownerName: string;
-  ownerWallet: string;
-  prompt: string;
-  version: string;
-};
-
-const emptyPublishForm: PublishSpecialistFormValues = {
-  basePriceSol: "0.5",
-  capabilities: "",
-  deliveryDays: "4",
-  model: "claude-sonnet-5",
-  name: "",
-  ownerName: "",
-  ownerWallet: "",
-  prompt: "",
-  version: "1.0.0"
-};
-
 type GitHubStatus = {
   configured: boolean;
   connected: boolean;
@@ -173,7 +136,6 @@ const emptyXStatus: XConnectionStatus = {
   configured: false,
   connected: false
 };
-const PHANTOM_DOWNLOAD_URL = "https://phantom.com/download";
 const REQUIRED_X_WRITE_SCOPES = [
   "tweet.read",
   "users.read",
@@ -182,21 +144,10 @@ const REQUIRED_X_WRITE_SCOPES = [
 ];
 
 export default function Home() {
-  const isClient = useSyncExternalStore(
-    subscribeToClient,
-    getClientSnapshot,
-    getServerSnapshot
-  );
   const { connection } = useConnection();
   const {
-    wallets,
-    wallet,
     publicKey,
     connected,
-    connecting,
-    select,
-    connect,
-    disconnect,
     sendTransaction
   } = useWallet();
   const [form, setForm] = useState<FounderRequest>({
@@ -209,12 +160,6 @@ export default function Home() {
   const [reputation, setReputation] = useState<
     Record<SpecialistId, SpecialistReputation>
   >(seedReputationMap);
-  const [publishedSpecialists, setPublishedSpecialists] = useState<
-    SpecialistAgent[]
-  >([]);
-  const [showPublishForm, setShowPublishForm] = useState(false);
-  const [publishMessage, setPublishMessage] = useState<string | null>(null);
-  const [isPublishing, setIsPublishing] = useState(false);
   const [profileAgentId, setProfileAgentId] = useState<SpecialistId | null>(
     null
   );
@@ -255,10 +200,6 @@ export default function Home() {
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [releaseStatus, setReleaseStatus] = useState<ReleaseStatus>("idle");
   const [balanceSol, setBalanceSol] = useState<number | null>(null);
-  const [walletMessage, setWalletMessage] = useState<string | null>(null);
-  const [pendingWalletName, setPendingWalletName] =
-    useState<WalletName | null>(null);
-  const [isAirdropping, setIsAirdropping] = useState(false);
   const [copiedAssetId, setCopiedAssetId] = useState<string | null>(null);
   const [scheduleTime, setScheduleTime] = useState(defaultScheduleInput);
   const [xDrafts, setXDrafts] = useState<Record<string, string>>({});
@@ -314,7 +255,7 @@ export default function Home() {
       const lamports = await connection.getBalance(publicKey, "confirmed");
       setBalanceSol(lamports / LAMPORTS_PER_SOL);
     } catch {
-      setWalletMessage("Could not read devnet balance.");
+      setBalanceSol(null);
     }
   }, [connection, publicKey]);
 
@@ -363,7 +304,6 @@ export default function Home() {
 
       if (data.specialists) {
         registerPublishedSpecialists(data.specialists);
-        setPublishedSpecialists(data.specialists);
         setReputation((current) => ({
           ...current,
           ...seedReputationFromAgents(data.specialists as SpecialistAgent[])
@@ -373,64 +313,6 @@ export default function Home() {
       // Published specialists are optional; built-ins still work.
     }
   }, []);
-
-  const publishSpecialist = useCallback(
-    async (input: PublishSpecialistFormValues) => {
-      if (isPublishing) {
-        return false;
-      }
-
-      setIsPublishing(true);
-      setPublishMessage(null);
-
-      try {
-        const response = await fetch("/api/specialists", {
-          body: JSON.stringify({
-            ...input,
-            capabilities: parseCapabilities(input.capabilities)
-          }),
-          headers: {
-            "Content-Type": "application/json"
-          },
-          method: "POST"
-        });
-        const data = (await response.json()) as {
-          error?: string;
-          specialist?: SpecialistAgent;
-        };
-
-        if (!response.ok || !data.specialist) {
-          throw new Error(data.error || "Could not publish specialist.");
-        }
-
-        const specialist = data.specialist;
-
-        registerPublishedSpecialist(specialist);
-        setPublishedSpecialists((current) => [specialist, ...current]);
-        setReputation((current) => ({
-          ...current,
-          [specialist.id]: seedReputationFor(specialist)
-        }));
-        setPublishMessage(
-          `${specialist.name} is live in the marketplace and can now bid for work.`
-        );
-        setShowPublishForm(false);
-
-        return true;
-      } catch (error) {
-        setPublishMessage(
-          error instanceof Error
-            ? error.message
-            : "Could not publish specialist."
-        );
-
-        return false;
-      } finally {
-        setIsPublishing(false);
-      }
-    },
-    [isPublishing]
-  );
 
   const loadRepositories = useCallback(async () => {
     setReposLoading(true);
@@ -538,7 +420,7 @@ export default function Home() {
       })
       .catch(() => {
         if (!cancelled) {
-          setWalletMessage("Could not read devnet balance.");
+          setBalanceSol(null);
         }
       });
 
@@ -546,75 +428,6 @@ export default function Home() {
       cancelled = true;
     };
   }, [connection, publicKey]);
-
-  useEffect(() => {
-    if (!pendingWalletName || wallet?.adapter.name !== pendingWalletName) {
-      return;
-    }
-
-    let cancelled = false;
-
-    connect()
-      .then(() => {
-        if (!cancelled) {
-          setWalletMessage(null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setWalletMessage(
-            error instanceof Error ? error.message : "Wallet connection failed."
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPendingWalletName(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [connect, pendingWalletName, wallet?.adapter.name]);
-
-  const connectWallet = (walletName: WalletName) => {
-    setWalletMessage(null);
-    select(walletName);
-    setPendingWalletName(walletName);
-  };
-
-  const requestDevnetSol = async () => {
-    if (!publicKey || isAirdropping) {
-      return;
-    }
-
-    setWalletMessage(null);
-    setIsAirdropping(true);
-
-    try {
-      const signature = await connection.requestAirdrop(
-        publicKey,
-        LAMPORTS_PER_SOL
-      );
-      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
-
-      await connection.confirmTransaction(
-        {
-          signature,
-          blockhash: latestBlockhash.blockhash,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
-        },
-        "confirmed"
-      );
-      await refreshBalance();
-      setWalletMessage("Devnet SOL received.");
-    } catch {
-      setWalletMessage("Airdrop unavailable. Use the devnet faucet link.");
-    } finally {
-      setIsAirdropping(false);
-    }
-  };
 
   const disconnectX = async () => {
     try {
@@ -1487,34 +1300,14 @@ export default function Home() {
 
   return (
     <main>
-      {isClient ? (
-        <WalletStrip
-          balanceSol={balanceSol}
-          connected={connected}
-          connecting={connecting || pendingWalletName !== null}
-          disconnect={disconnect}
-          isAirdropping={isAirdropping}
-          message={walletMessage}
-          publicKey={publicKey?.toBase58() || null}
-          requestDevnetSol={requestDevnetSol}
-          selectWallet={connectWallet}
-          wallets={wallets}
-        />
-      ) : null}
-
       {activeStage === "setup" ? (
         <SetupSection
           form={form}
           githubStatus={githubStatus}
           googleStatus={googleStatus}
           integrationError={integrationError}
-          isPublishing={isPublishing}
           isRunning={isRunning}
           loading={statusLoading}
-          onOpenProfile={setProfileAgentId}
-          onPublishSpecialist={publishSpecialist}
-          publishMessage={publishMessage}
-          publishedSpecialists={publishedSpecialists}
           refreshRepositories={loadRepositories}
           refreshToolStatuses={refreshToolStatuses}
           repositories={repositories}
@@ -1524,8 +1317,6 @@ export default function Home() {
           setForm={setForm}
           setSelectedAnalyticsProperty={setSelectedAnalyticsProperty}
           setSelectedRepo={setSelectedRepo}
-          setShowPublishForm={setShowPublishForm}
-          showPublishForm={showPublishForm}
           submit={hireEmployee}
           xDisconnect={disconnectX}
           xStatus={xStatus}
@@ -1618,13 +1409,8 @@ function SetupSection({
   githubStatus,
   googleStatus,
   integrationError,
-  isPublishing,
   isRunning,
   loading,
-  onOpenProfile,
-  onPublishSpecialist,
-  publishMessage,
-  publishedSpecialists,
   refreshRepositories,
   refreshToolStatuses,
   repositories,
@@ -1634,8 +1420,6 @@ function SetupSection({
   setForm,
   setSelectedAnalyticsProperty,
   setSelectedRepo,
-  setShowPublishForm,
-  showPublishForm,
   submit,
   xDisconnect,
   xStatus
@@ -1644,15 +1428,8 @@ function SetupSection({
   githubStatus: GitHubStatus;
   googleStatus: GoogleAnalyticsStatus;
   integrationError: string | null;
-  isPublishing: boolean;
   isRunning: boolean;
   loading: boolean;
-  onOpenProfile: (id: SpecialistId) => void;
-  onPublishSpecialist: (
-    input: PublishSpecialistFormValues
-  ) => Promise<boolean>;
-  publishMessage: string | null;
-  publishedSpecialists: SpecialistAgent[];
   refreshRepositories: () => Promise<void>;
   refreshToolStatuses: () => Promise<void>;
   repositories: GitHubRepositorySummary[];
@@ -1662,8 +1439,6 @@ function SetupSection({
   setForm: Dispatch<SetStateAction<FounderRequest>>;
   setSelectedAnalyticsProperty: (value: string) => void;
   setSelectedRepo: (value: string) => void;
-  setShowPublishForm: (value: boolean) => void;
-  showPublishForm: boolean;
   submit: () => Promise<void>;
   xDisconnect: () => Promise<void>;
   xStatus: XConnectionStatus;
@@ -1806,439 +1581,7 @@ function SetupSection({
         ) : null}
       </form>
 
-      <PublishSpecialistPanel
-        isPublishing={isPublishing}
-        onOpenProfile={onOpenProfile}
-        onPublish={onPublishSpecialist}
-        publishMessage={publishMessage}
-        publishedSpecialists={publishedSpecialists}
-        setShowForm={setShowPublishForm}
-        showForm={showPublishForm}
-      />
     </section>
-  );
-}
-
-function PublishSpecialistPanel({
-  isPublishing,
-  onOpenProfile,
-  onPublish,
-  publishMessage,
-  publishedSpecialists,
-  setShowForm,
-  showForm
-}: {
-  isPublishing: boolean;
-  onOpenProfile: (id: SpecialistId) => void;
-  onPublish: (input: PublishSpecialistFormValues) => Promise<boolean>;
-  publishMessage: string | null;
-  publishedSpecialists: SpecialistAgent[];
-  setShowForm: (value: boolean) => void;
-  showForm: boolean;
-}) {
-  const [values, setValues] = useState<PublishSpecialistFormValues>(
-    emptyPublishForm
-  );
-  const update = (field: keyof PublishSpecialistFormValues, value: string) =>
-    setValues((current) => ({ ...current, [field]: value }));
-  const sellers = [...specialistRegistry, ...publishedSpecialists];
-
-  return (
-    <div className="mt-16 max-w-2xl border-t hairline pt-10">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-md">
-          <p className="text-sm font-medium text-[#18181b]">
-            Sellers on this marketplace
-          </p>
-          <p className="mt-2 text-sm leading-6 text-[#52525b]">
-            Each specialist is an independent business run by an owner. It
-            competes for jobs, delivers work, and earns SOL. Open a profile to
-            see its track record.
-          </p>
-        </div>
-        <button
-          className="rounded-full border hairline bg-white px-4 py-2.5 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a]"
-          onClick={() => setShowForm(!showForm)}
-          type="button"
-        >
-          {showForm ? "Close" : "Publish Specialist"}
-        </button>
-      </div>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {sellers.map((agent) => (
-          <button
-            className="flex items-center gap-2 rounded-full border hairline bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:border-[#0a0a0a]"
-            key={agent.id}
-            onClick={() => onOpenProfile(agent.id)}
-            type="button"
-          >
-            <span aria-hidden="true">{agent.avatar}</span>
-            <span>{agent.name}</span>
-            {agent.averageRating > 0 ? (
-              <span className="text-[#71717a]">
-                {agent.averageRating.toFixed(1)}
-              </span>
-            ) : (
-              <span className="text-[#71717a]">new</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      <p className="mt-4 text-xs leading-5 text-[#71717a]">
-        Publish an agent that can bid for paid growth work. Its owner is paid
-        on Solana after delivery.
-      </p>
-
-      {showForm ? (
-        <form
-          className="mt-6 grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onPublish(values).then((ok) => {
-              if (ok) {
-                setValues(emptyPublishForm);
-              }
-            });
-          }}
-        >
-          <PublishField label="Agent name">
-            <input
-              className="field h-12 px-4 text-sm"
-              onChange={(event) => update("name", event.target.value)}
-              placeholder="e.g. Launch Video Specialist"
-              required
-              value={values.name}
-            />
-          </PublishField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <PublishField label="Owner name">
-              <input
-                className="field h-12 px-4 text-sm"
-                onChange={(event) => update("ownerName", event.target.value)}
-                placeholder="Your name or studio"
-                required
-                value={values.ownerName}
-              />
-            </PublishField>
-            <PublishField label="Owner wallet">
-              <input
-                className="field h-12 px-4 text-sm"
-                onChange={(event) => update("ownerWallet", event.target.value)}
-                placeholder="Solana address for payouts"
-                required
-                value={values.ownerWallet}
-              />
-            </PublishField>
-          </div>
-
-          <PublishField
-            hint="Comma-separated, e.g. video-scripts, editing, thumbnails"
-            label="Capabilities"
-          >
-            <input
-              className="field h-12 px-4 text-sm"
-              onChange={(event) => update("capabilities", event.target.value)}
-              placeholder="capability-one, capability-two"
-              required
-              value={values.capabilities}
-            />
-          </PublishField>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            <PublishField label="Base price (SOL)">
-              <input
-                className="field h-12 px-4 text-sm"
-                min={0}
-                onChange={(event) => update("basePriceSol", event.target.value)}
-                step={0.05}
-                type="number"
-                value={values.basePriceSol}
-              />
-            </PublishField>
-            <PublishField label="Delivery days">
-              <input
-                className="field h-12 px-4 text-sm"
-                min={1}
-                onChange={(event) => update("deliveryDays", event.target.value)}
-                step={1}
-                type="number"
-                value={values.deliveryDays}
-              />
-            </PublishField>
-            <PublishField label="Version">
-              <input
-                className="field h-12 px-4 text-sm"
-                onChange={(event) => update("version", event.target.value)}
-                placeholder="1.0.0"
-                required
-                value={values.version}
-              />
-            </PublishField>
-          </div>
-
-          <PublishField label="Model">
-            <input
-              className="field h-12 px-4 text-sm"
-              onChange={(event) => update("model", event.target.value)}
-              placeholder="e.g. claude-sonnet-5"
-              required
-              value={values.model}
-            />
-          </PublishField>
-
-          <PublishField
-            hint="How the agent should approach growth work. Grounds its bids and delivery."
-            label="Prompt"
-          >
-            <textarea
-              className="field min-h-28 resize-y px-4 py-3 text-sm leading-6"
-              onChange={(event) => update("prompt", event.target.value)}
-              placeholder="You are a specialist that..."
-              required
-              value={values.prompt}
-            />
-          </PublishField>
-
-          <button
-            className="mt-1 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
-            disabled={isPublishing}
-            type="submit"
-          >
-            {isPublishing ? "Publishing..." : "Publish to marketplace"}
-          </button>
-        </form>
-      ) : null}
-
-      {publishMessage ? (
-        <p className="mt-4 rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#27272a]">
-          {publishMessage}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function PublishField({
-  children,
-  hint,
-  label
-}: {
-  children: ReactNode;
-  hint?: string;
-  label: string;
-}) {
-  return (
-    <label className="grid gap-2">
-      <span className="text-sm font-medium text-[#18181b]">{label}</span>
-      {children}
-      {hint ? <span className="text-xs text-[#71717a]">{hint}</span> : null}
-    </label>
-  );
-}
-
-function AgentProfileModal({
-  agent,
-  onClose,
-  reputation
-}: {
-  agent: SpecialistAgent;
-  onClose: () => void;
-  reputation: SpecialistReputation;
-}) {
-  const liveExtraEarnings = Math.max(
-    0,
-    reputation.totalEarnedSol - agent.totalEarnedSol
-  );
-  const earnings = agent.monthlyEarnings.map((value, index) =>
-    index === agent.monthlyEarnings.length - 1
-      ? Number((value + liveExtraEarnings).toFixed(4))
-      : value
-  );
-  const recentClients = [
-    ...reputation.recentJobs.map((job) => job.client),
-    ...agent.recentClients
-  ]
-    .filter((client, index, all) => all.indexOf(client) === index)
-    .slice(0, 6);
-
-  return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/25 p-4 backdrop-blur-sm"
-      onClick={onClose}
-      role="presentation"
-    >
-      <article
-        className="enter max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-[2rem] bg-white p-7 soft-shadow"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <span
-              aria-hidden="true"
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#f4f4f5] text-2xl"
-            >
-              {agent.avatar}
-            </span>
-            <div>
-              <h3 className="text-2xl font-semibold tracking-[-0.03em]">
-                {agent.name}
-              </h3>
-              <p className="mt-1 text-xs text-[#71717a]">
-                Independent seller agent · v{agent.version}
-              </p>
-            </div>
-          </div>
-          <button
-            className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b] transition hover:bg-[#0a0a0a] hover:text-white"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </div>
-
-        <p className="mt-5 text-sm leading-6 text-[#52525b]">
-          {agent.description}
-        </p>
-
-        <dl className="mt-6 grid gap-4 border-t hairline pt-6 sm:grid-cols-2">
-          <ProfileMetaRow label="Owner" value={agent.ownerName} />
-          <ProfileMetaRow
-            label="Wallet"
-            value={shortAddress(agent.ownerWallet)}
-          />
-          <ProfileMetaRow
-            label="Published"
-            value={formatMonthYear(agent.createdAt)}
-          />
-          <ProfileMetaRow label="Model" value={agent.model} />
-          <ProfileMetaRow
-            label="Average delivery"
-            value={`${agent.averageDeliveryDays} days`}
-          />
-          <ProfileMetaRow
-            label="Last hired"
-            value={
-              reputation.lastHiredAt
-                ? formatMonthYear(reputation.lastHiredAt)
-                : "Not hired yet"
-            }
-          />
-        </dl>
-
-        <div className="mt-6 flex flex-wrap gap-1.5">
-          {agent.capabilities.map((capability) => (
-            <span
-              className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
-              key={capability}
-            >
-              {capability}
-            </span>
-          ))}
-        </div>
-
-        <div className="mt-6 grid grid-cols-3 gap-3 border-t hairline pt-6">
-          <div>
-            <p className="text-2xl font-semibold tracking-[-0.03em]">
-              {reputation.jobsCompleted}
-            </p>
-            <p className="mt-1 text-xs text-[#71717a]">Jobs completed</p>
-          </div>
-          <div>
-            <p className="text-2xl font-semibold tracking-[-0.03em]">
-              {formatSol(reputation.totalEarnedSol)}
-            </p>
-            <p className="mt-1 text-xs text-[#71717a]">Total earned</p>
-          </div>
-          <div>
-            <p className="text-2xl font-semibold tracking-[-0.03em]">
-              {reputation.averageRating > 0
-                ? reputation.averageRating.toFixed(1)
-                : "—"}
-            </p>
-            <p className="mt-1 text-xs text-[#71717a]">Rating</p>
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <p className="text-xs font-medium text-[#71717a]">
-            Earnings, last 6 months
-          </p>
-          <EarningsSparkline values={earnings} />
-        </div>
-
-        <div className="mt-6">
-          <p className="text-xs font-medium text-[#71717a]">Recent clients</p>
-          {recentClients.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {recentClients.map((client) => (
-                <span
-                  className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs text-[#27272a]"
-                  key={client}
-                >
-                  {client}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mt-2 text-sm text-[#71717a]">
-              No completed jobs yet — this seller is waiting for its first
-              client.
-            </p>
-          )}
-        </div>
-      </article>
-    </div>
-  );
-}
-
-function ProfileMetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-[#71717a]">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-[#27272a]">{value}</dd>
-    </div>
-  );
-}
-
-function EarningsSparkline({ values }: { values: number[] }) {
-  const max = Math.max(...values, 0);
-
-  if (max === 0) {
-    return (
-      <p className="mt-2 text-sm text-[#71717a]">No earnings recorded yet.</p>
-    );
-  }
-
-  const barWidth = 100 / values.length;
-
-  return (
-    <svg
-      aria-label="Earnings by month"
-      className="mt-2 h-14 w-full"
-      preserveAspectRatio="none"
-      role="img"
-      viewBox="0 0 100 40"
-    >
-      {values.map((value, index) => {
-        const height = max > 0 ? (value / max) * 36 : 0;
-
-        return (
-          <rect
-            fill={index === values.length - 1 ? "#0a0a0a" : "#d4d4d8"}
-            height={Math.max(height, value > 0 ? 2 : 0)}
-            key={index}
-            rx={1.5}
-            width={barWidth - 3}
-            x={index * barWidth + 1.5}
-            y={40 - Math.max(height, value > 0 ? 2 : 0)}
-          />
-        );
-      })}
-    </svg>
   );
 }
 
@@ -2808,120 +2151,6 @@ function BidMeta({
         {value}
       </p>
     </div>
-  );
-}
-
-function WalletStrip({
-  balanceSol,
-  connected,
-  connecting,
-  disconnect,
-  isAirdropping,
-  message,
-  publicKey,
-  requestDevnetSol,
-  selectWallet,
-  wallets
-}: {
-  balanceSol: number | null;
-  connected: boolean;
-  connecting: boolean;
-  disconnect: () => Promise<void>;
-  isAirdropping: boolean;
-  message: string | null;
-  publicKey: string | null;
-  requestDevnetSol: () => Promise<void>;
-  selectWallet: (walletName: WalletName) => void;
-  wallets: Wallet[];
-}) {
-  const phantomWallet = wallets.find(
-    ({ adapter }) => String(adapter.name) === "Phantom"
-  );
-  const phantomReadyState = phantomWallet?.adapter.readyState;
-  const canConnectPhantom =
-    phantomReadyState === WalletReadyState.Installed ||
-    phantomReadyState === WalletReadyState.Loadable;
-  const balanceIsLow =
-    connected && balanceSol !== null && balanceSol < LOW_BALANCE_SOL;
-
-  return (
-    <nav className="fixed inset-x-0 top-0 z-30 px-5 py-4 sm:px-8">
-      <div className="mx-auto flex max-w-5xl items-start justify-between gap-4">
-        <div className="rounded-full bg-[#fbfbfa]/80 px-3 py-2 text-sm font-semibold tracking-[-0.02em] text-[#0a0a0a] backdrop-blur">
-          Relix
-        </div>
-
-        <div className="flex flex-col items-end gap-2">
-          {connected && publicKey ? (
-            <div className="inline-flex max-w-full flex-wrap items-center justify-end gap-2 rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 text-xs text-[#52525b] shadow-sm backdrop-blur">
-              <span>Devnet</span>
-              <span className="h-1 w-1 rounded-full bg-[#d4d4d8]" />
-              <span>
-                {balanceSol === null ? "..." : `${formatBalance(balanceSol)} SOL`}
-              </span>
-              <span className="h-1 w-1 rounded-full bg-[#d4d4d8]" />
-              <span>{shortAddress(publicKey)}</span>
-              <button
-                className="ml-1 text-[#0a0a0a] transition hover:text-[#2563eb]"
-                onClick={() => void disconnect()}
-                type="button"
-              >
-                Disconnect
-              </button>
-            </div>
-          ) : (
-            <div className="inline-flex flex-wrap justify-end gap-2">
-              {phantomWallet && canConnectPhantom ? (
-                <button
-                  className="rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a] disabled:opacity-50"
-                  disabled={connecting}
-                  onClick={() => selectWallet(phantomWallet.adapter.name)}
-                  type="button"
-                >
-                  {connecting ? "Connecting..." : "Connect Phantom"}
-                </button>
-              ) : (
-                <a
-                  className="rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 text-xs font-medium text-[#0a0a0a] shadow-sm backdrop-blur transition hover:border-[#0a0a0a]"
-                  href={PHANTOM_DOWNLOAD_URL}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Get Phantom
-                </a>
-              )}
-            </div>
-          )}
-
-          {balanceIsLow ? (
-            <div className="flex flex-wrap justify-end gap-2 text-xs">
-              <button
-                className="rounded-full bg-[#0a0a0a] px-3 py-2 font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-                disabled={isAirdropping}
-                onClick={() => void requestDevnetSol()}
-                type="button"
-              >
-                {isAirdropping ? "Requesting..." : "Get devnet SOL"}
-              </button>
-              <a
-                className="rounded-full border hairline bg-[#fbfbfa]/80 px-3 py-2 font-medium text-[#52525b] shadow-sm backdrop-blur transition hover:border-[#0a0a0a] hover:text-[#0a0a0a]"
-                href={FAUCET_URL}
-                rel="noreferrer"
-                target="_blank"
-              >
-                Faucet
-              </a>
-            </div>
-          ) : null}
-
-          {message ? (
-            <p className="max-w-xs rounded-2xl bg-[#fbfbfa]/90 px-3 py-2 text-right text-xs leading-5 text-[#52525b] shadow-sm backdrop-blur">
-              {message}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </nav>
   );
 }
 
@@ -4124,13 +3353,6 @@ function seedReputationFromAgents(agents: SpecialistAgent[]) {
   );
 }
 
-function parseCapabilities(value: string) {
-  return value
-    .split(/[,\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function reputationLine(reputation: SpecialistReputation) {
   if (reputation.jobsCompleted === 0) {
     return "New seller · no completed jobs yet";
@@ -4185,14 +3407,6 @@ function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-function formatBalance(value: number) {
-  if (value < 0.001) {
-    return value.toFixed(4);
-  }
-
-  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
-}
-
 function formatDate(value: string) {
   const date = new Date(value);
 
@@ -4203,19 +3417,6 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("en", {
     day: "numeric",
     month: "short"
-  }).format(date);
-}
-
-function formatMonthYear(value: string) {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Recently";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    month: "long",
-    year: "numeric"
   }).format(date);
 }
 
