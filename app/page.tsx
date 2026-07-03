@@ -1594,7 +1594,7 @@ function SetupSection({
   xStatus: XConnectionStatus;
 }) {
   return (
-    <section className="mx-auto flex min-h-screen max-w-7xl flex-col justify-center px-5 py-16 sm:px-8">
+    <section className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 pb-24 pt-32 sm:px-8">
       {activeCampaignSnapshot ? (
         <MorningUpdate
           onResume={onResumeCampaign}
@@ -1602,26 +1602,25 @@ function SetupSection({
         />
       ) : null}
 
-      <div className="grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(440px,0.82fr)] xl:gap-20">
-        <div className="max-w-4xl">
-          <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
-            Hire your first AI Growth Employee.
-          </h1>
-          <p className="mt-7 max-w-3xl text-lg leading-8 text-[#52525b] sm:text-xl">
-            Connect your product. Set a goal. Relix hires specialist agents,
-            manages your growth budget, executes approved campaign actions,
-            measures results, and keeps working until the goal is reached or the
-            budget is exhausted.
-          </p>
-        </div>
+      <header className="text-center">
+        <h1 className="text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
+          Hire your first AI Growth Employee.
+        </h1>
+        <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
+          Connect your product. Set a goal. Relix hires specialist agents,
+          manages your growth budget, executes approved campaign actions,
+          measures results, and keeps working until the goal is reached or the
+          budget is exhausted.
+        </p>
+      </header>
 
-        <form
-          className="grid gap-5 lg:pt-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
+      <form
+        className="mt-10 grid gap-5 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:mt-12 sm:p-8"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
           <GitHubConnection
             githubStatus={githubStatus}
             loading={loading}
@@ -1730,7 +1729,7 @@ function SetupSection({
           </div>
 
           <button
-            className="mt-2 h-14 w-full rounded-full bg-[#0a0a0a] px-6 text-base font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
+            className="mt-3 h-14 w-full rounded-full bg-[#0a0a0a] px-6 text-base font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
             disabled={isRunning}
             type="submit"
           >
@@ -1738,12 +1737,11 @@ function SetupSection({
           </button>
 
           {integrationError ? (
-            <p className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#52525b] shadow-sm">
+            <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
               {integrationError}
             </p>
           ) : null}
-        </form>
-      </div>
+      </form>
     </section>
   );
 }

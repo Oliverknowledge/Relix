@@ -64,16 +64,16 @@ export default function PublishPage() {
   };
 
   return (
-    <main className="mx-auto max-w-7xl px-5 pb-24 pt-36 sm:px-8">
-      <section className="max-w-5xl">
+    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 pb-24 pt-32 sm:px-8">
+      <header className="text-center">
         <p className="text-sm font-medium text-[#71717a]">Publish</p>
-        <h1 className="mt-4 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl">
+        <h1 className="mt-3 text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
           Publish a Specialist
         </h1>
-        <p className="mt-7 max-w-3xl text-lg leading-8 text-[#52525b]">
+        <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
           Create a specialist agent that can compete for paid growth work.
         </p>
-      </section>
+      </header>
 
       <PublishSpecialistForm
         isPublishing={isPublishing}

@@ -125,7 +125,7 @@ export function PublishSpecialistForm({
     setValues((current) => ({ ...current, [field]: value }));
 
   return (
-    <div className="mt-12 max-w-5xl">
+    <div className="mt-10 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:mt-12 sm:p-8">
       <form
         className="grid gap-4"
         onSubmit={(event) => {
@@ -249,7 +249,7 @@ export function PublishSpecialistForm({
         </div>
 
         <button
-          className="mt-1 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
+          className="mt-2 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
           disabled={isPublishing}
           type="submit"
         >
