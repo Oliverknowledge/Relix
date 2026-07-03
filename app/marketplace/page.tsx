@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   allKnownSpecialists,
+  modelDisplayName,
   reputationFromAgent,
   specialistSlug
 } from "@/app/components/specialist-ui";
@@ -208,7 +209,7 @@ function MarketplaceAgentCard({
       <div className="mt-6 grid gap-4 border-t hairline pt-6 sm:grid-cols-2 lg:grid-cols-4">
         <MarketplaceMeta label="Owner" value={agent.ownerName} />
         <MarketplaceMeta label="Wallet" value={agent.ownerWallet} />
-        <MarketplaceMeta label="Model" value={agent.model} />
+        <MarketplaceMeta label="Model" value={modelDisplayName(agent.model)} />
         <MarketplaceMeta label="Version" value={`v${agent.version}`} />
         <MarketplaceMeta
           label="Rating"

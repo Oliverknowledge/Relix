@@ -5,6 +5,7 @@ import {
   BUILT_IN_SPECIALIST_IDS,
   type SpecialistAgent
 } from "@/app/lib/specialist-agents";
+import { isCheapClaudeModel } from "@/app/lib/specialist-models";
 import { parseSolanaAddress } from "@/app/lib/wallet";
 
 export type PublishSpecialistInput = {
@@ -88,6 +89,10 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
 
   if (capabilities.length === 0) {
     throw new Error("Add at least one capability.");
+  }
+
+  if (!isCheapClaudeModel(model)) {
+    throw new Error("Choose one of the supported lower-cost Claude models.");
   }
 
   if (!Number.isFinite(basePriceSol) || basePriceSol <= 0) {

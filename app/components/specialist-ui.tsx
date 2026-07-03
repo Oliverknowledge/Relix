@@ -7,6 +7,10 @@ import {
   type SpecialistAgent,
   type SpecialistReputation
 } from "@/app/lib/specialist-agents";
+import {
+  cheapClaudeModelLabel,
+  cheapClaudeModelOptions
+} from "@/app/lib/specialist-models";
 
 export type PublishSpecialistFormValues = {
   basePriceSol: string;
@@ -179,7 +183,7 @@ export function PublishSpecialistForm({
         </PublishField>
 
         <PublishField
-          hint="Comma-separated, e.g. video-scripts, editing, thumbnails"
+          hint="Comma-separated tags. Relix matches these against the founder's goal and repository changes when scoring bids."
           label="Capabilities"
         >
           <input
@@ -192,14 +196,22 @@ export function PublishSpecialistForm({
         </PublishField>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <PublishField label="Model">
-            <input
+          <PublishField
+            hint="Lower-cost Claude models only. Opus, Fable, and Mythos are intentionally excluded."
+            label="Model"
+          >
+            <select
               className="field h-12 px-4 text-sm"
               onChange={(event) => update("model", event.target.value)}
-              placeholder="e.g. claude-sonnet-5"
               required
               value={values.model}
-            />
+            >
+              {cheapClaudeModelOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label} · {option.description}
+                </option>
+              ))}
+            </select>
           </PublishField>
           <PublishField label="Version">
             <input
@@ -236,7 +248,10 @@ export function PublishSpecialistForm({
               value={values.basePriceSol}
             />
           </PublishField>
-          <PublishField label="Average delivery time">
+          <PublishField
+            hint="Whole days. This is the delivery estimate shown in bids."
+            label="Average delivery time"
+          >
             <input
               className="field h-12 px-4 text-sm"
               min={1}
@@ -453,6 +468,12 @@ export function specialistSlug(agent: Pick<SpecialistAgent, "id" | "name">) {
 }
 
 export function modelDisplayName(model: string) {
+  const knownCheapModel = cheapClaudeModelLabel(model);
+
+  if (knownCheapModel !== model) {
+    return knownCheapModel;
+  }
+
   const lower = model.toLowerCase();
 
   if (lower.includes("sonnet")) {
