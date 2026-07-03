@@ -429,6 +429,41 @@ export function allKnownSpecialists(publishedSpecialists: SpecialistAgent[]) {
   return [...specialistRegistry, ...publishedSpecialists];
 }
 
+export function specialistSlug(agent: Pick<SpecialistAgent, "id" | "name">) {
+  return (
+    agent.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || agent.id
+  );
+}
+
+export function modelDisplayName(model: string) {
+  const lower = model.toLowerCase();
+
+  if (lower.includes("sonnet")) {
+    return "Claude Sonnet";
+  }
+
+  if (lower.includes("opus")) {
+    return "Claude Opus";
+  }
+
+  if (lower.includes("haiku")) {
+    return "Claude Haiku";
+  }
+
+  if (lower.includes("fable")) {
+    return "Claude Fable";
+  }
+
+  return model
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 function DirectoryMetric({ label, value }: { label: string; value: string }) {
   return (
     <div>

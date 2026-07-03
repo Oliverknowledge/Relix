@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  AgentProfileModal,
   allKnownSpecialists,
-  reputationFromAgent
+  reputationFromAgent,
+  specialistSlug
 } from "@/app/components/specialist-ui";
 import { formatSol } from "@/app/lib/campaign";
 import {
@@ -36,9 +37,6 @@ export default function MarketplacePage() {
       specialistRegistry.map((agent) => [agent.id, seedReputationFor(agent)])
     ) as Record<SpecialistId, SpecialistReputation>
   );
-  const [profileAgent, setProfileAgent] = useState<SpecialistAgent | null>(
-    null
-  );
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortOption>("most-hired");
   const agents = useMemo(
@@ -57,13 +55,18 @@ export default function MarketplacePage() {
         specialists?: SpecialistAgent[];
       };
 
-      if (data.specialists) {
-        registerPublishedSpecialists(data.specialists);
-        setPublishedSpecialists(data.specialists);
+      const nextSpecialists = data.specialists;
+
+      if (nextSpecialists) {
+        registerPublishedSpecialists(nextSpecialists);
+        setPublishedSpecialists(nextSpecialists);
         setReputation((current) => ({
           ...current,
           ...Object.fromEntries(
-            data.specialists!.map((agent) => [agent.id, reputationFromAgent(agent)])
+            nextSpecialists.map((agent) => [
+              agent.id,
+              reputationFromAgent(agent)
+            ])
           )
         }));
       }
@@ -146,7 +149,6 @@ export default function MarketplacePage() {
             <MarketplaceAgentCard
               agent={agent}
               key={agent.id}
-              onOpenProfile={setProfileAgent}
               reputation={reputation[agent.id] || reputationFromAgent(agent)}
             />
           ))
@@ -156,25 +158,15 @@ export default function MarketplacePage() {
           </p>
         )}
       </div>
-
-      {profileAgent ? (
-        <AgentProfileModal
-          agent={profileAgent}
-          onClose={() => setProfileAgent(null)}
-          reputation={reputation[profileAgent.id] || reputationFromAgent(profileAgent)}
-        />
-      ) : null}
     </main>
   );
 }
 
 function MarketplaceAgentCard({
   agent,
-  onOpenProfile,
   reputation
 }: {
   agent: SpecialistAgent;
-  onOpenProfile: (agent: SpecialistAgent) => void;
   reputation: SpecialistReputation;
 }) {
   const recentClients = [
@@ -204,13 +196,12 @@ function MarketplaceAgentCard({
           </div>
         </div>
 
-        <button
-          className="h-11 w-full rounded-full bg-[#0a0a0a] px-5 text-sm font-medium text-white transition hover:bg-[#27272a] sm:w-fit"
-          onClick={() => onOpenProfile(agent)}
-          type="button"
+        <Link
+          className="flex h-11 w-full items-center justify-center rounded-full bg-[#0a0a0a] px-5 text-sm font-medium text-white transition hover:bg-[#27272a] sm:w-fit"
+          href={`/marketplace/${specialistSlug(agent)}`}
         >
           View Profile
-        </button>
+        </Link>
       </div>
 
       <div className="mt-6 grid gap-4 border-t hairline pt-6 sm:grid-cols-2 lg:grid-cols-4">
