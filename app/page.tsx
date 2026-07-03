@@ -17,6 +17,7 @@ import {
 } from "@solana/web3.js";
 import {
   type Dispatch,
+  type ReactNode,
   type RefObject,
   type SetStateAction,
   useCallback,
@@ -55,8 +56,11 @@ import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
 import {
   getSpecialistAdapter,
   getSpecialistAgent,
+  registerPublishedSpecialist,
+  registerPublishedSpecialists,
   seedReputationFor,
   specialistRegistry,
+  type SpecialistAgent,
   type SpecialistDelivery,
   type SpecialistId,
   type SpecialistReputation
@@ -117,6 +121,30 @@ type DeliveryAssetBlock = {
   label: string;
   section: string;
   text: string;
+};
+
+type PublishSpecialistFormValues = {
+  basePriceSol: string;
+  capabilities: string;
+  deliveryDays: string;
+  model: string;
+  name: string;
+  ownerName: string;
+  ownerWallet: string;
+  prompt: string;
+  version: string;
+};
+
+const emptyPublishForm: PublishSpecialistFormValues = {
+  basePriceSol: "0.5",
+  capabilities: "",
+  deliveryDays: "4",
+  model: "claude-sonnet-5",
+  name: "",
+  ownerName: "",
+  ownerWallet: "",
+  prompt: "",
+  version: "1.0.0"
 };
 
 type GitHubStatus = {
@@ -181,6 +209,12 @@ export default function Home() {
   const [reputation, setReputation] = useState<
     Record<SpecialistId, SpecialistReputation>
   >(seedReputationMap);
+  const [publishedSpecialists, setPublishedSpecialists] = useState<
+    SpecialistAgent[]
+  >([]);
+  const [showPublishForm, setShowPublishForm] = useState(false);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [githubStatus, setGithubStatus] =
     useState<GitHubStatus>(emptyGitHubStatus);
   const [googleStatus, setGoogleStatus] =
@@ -310,12 +344,90 @@ export default function Home() {
       };
 
       if (data.reputation) {
-        setReputation(data.reputation);
+        setReputation((current) => ({ ...current, ...data.reputation }));
       }
     } catch {
       // Seed reputation from the registry remains in place.
     }
   }, []);
+
+  const loadPublishedSpecialists = useCallback(async () => {
+    try {
+      const response = await fetch("/api/specialists", { cache: "no-store" });
+      const data = (await response.json()) as {
+        specialists?: SpecialistAgent[];
+      };
+
+      if (data.specialists) {
+        registerPublishedSpecialists(data.specialists);
+        setPublishedSpecialists(data.specialists);
+        setReputation((current) => ({
+          ...current,
+          ...seedReputationFromAgents(data.specialists as SpecialistAgent[])
+        }));
+      }
+    } catch {
+      // Published specialists are optional; built-ins still work.
+    }
+  }, []);
+
+  const publishSpecialist = useCallback(
+    async (input: PublishSpecialistFormValues) => {
+      if (isPublishing) {
+        return false;
+      }
+
+      setIsPublishing(true);
+      setPublishMessage(null);
+
+      try {
+        const response = await fetch("/api/specialists", {
+          body: JSON.stringify({
+            ...input,
+            capabilities: parseCapabilities(input.capabilities)
+          }),
+          headers: {
+            "Content-Type": "application/json"
+          },
+          method: "POST"
+        });
+        const data = (await response.json()) as {
+          error?: string;
+          specialist?: SpecialistAgent;
+        };
+
+        if (!response.ok || !data.specialist) {
+          throw new Error(data.error || "Could not publish specialist.");
+        }
+
+        const specialist = data.specialist;
+
+        registerPublishedSpecialist(specialist);
+        setPublishedSpecialists((current) => [specialist, ...current]);
+        setReputation((current) => ({
+          ...current,
+          [specialist.id]: seedReputationFor(specialist)
+        }));
+        setPublishMessage(
+          `${specialist.name} is live in the marketplace and can now bid for work.`
+        );
+        setShowPublishForm(false);
+
+        return true;
+      } catch (error) {
+        setPublishMessage(
+          error instanceof Error
+            ? error.message
+            : "Could not publish specialist."
+        );
+
+        return false;
+      } finally {
+        setIsPublishing(false);
+      }
+    },
+    [isPublishing]
+  );
 
   const loadRepositories = useCallback(async () => {
     setReposLoading(true);
@@ -350,12 +462,13 @@ export default function Home() {
     const timer = window.setTimeout(() => {
       void refreshToolStatuses();
       void loadReputation();
+      void loadPublishedSpecialists();
     }, 0);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [loadReputation, refreshToolStatuses]);
+  }, [loadPublishedSpecialists, loadReputation, refreshToolStatuses]);
 
   useEffect(() => {
     if (githubStatus.connected) {
@@ -1378,8 +1491,12 @@ export default function Home() {
           githubStatus={githubStatus}
           googleStatus={googleStatus}
           integrationError={integrationError}
+          isPublishing={isPublishing}
           isRunning={isRunning}
           loading={statusLoading}
+          onPublishSpecialist={publishSpecialist}
+          publishMessage={publishMessage}
+          publishedSpecialists={publishedSpecialists}
           refreshRepositories={loadRepositories}
           refreshToolStatuses={refreshToolStatuses}
           repositories={repositories}
@@ -1389,6 +1506,8 @@ export default function Home() {
           setForm={setForm}
           setSelectedAnalyticsProperty={setSelectedAnalyticsProperty}
           setSelectedRepo={setSelectedRepo}
+          setShowPublishForm={setShowPublishForm}
+          showPublishForm={showPublishForm}
           submit={hireEmployee}
           xDisconnect={disconnectX}
           xStatus={xStatus}
@@ -1469,8 +1588,12 @@ function SetupSection({
   githubStatus,
   googleStatus,
   integrationError,
+  isPublishing,
   isRunning,
   loading,
+  onPublishSpecialist,
+  publishMessage,
+  publishedSpecialists,
   refreshRepositories,
   refreshToolStatuses,
   repositories,
@@ -1480,6 +1603,8 @@ function SetupSection({
   setForm,
   setSelectedAnalyticsProperty,
   setSelectedRepo,
+  setShowPublishForm,
+  showPublishForm,
   submit,
   xDisconnect,
   xStatus
@@ -1488,8 +1613,14 @@ function SetupSection({
   githubStatus: GitHubStatus;
   googleStatus: GoogleAnalyticsStatus;
   integrationError: string | null;
+  isPublishing: boolean;
   isRunning: boolean;
   loading: boolean;
+  onPublishSpecialist: (
+    input: PublishSpecialistFormValues
+  ) => Promise<boolean>;
+  publishMessage: string | null;
+  publishedSpecialists: SpecialistAgent[];
   refreshRepositories: () => Promise<void>;
   refreshToolStatuses: () => Promise<void>;
   repositories: GitHubRepositorySummary[];
@@ -1499,6 +1630,8 @@ function SetupSection({
   setForm: Dispatch<SetStateAction<FounderRequest>>;
   setSelectedAnalyticsProperty: (value: string) => void;
   setSelectedRepo: (value: string) => void;
+  setShowPublishForm: (value: boolean) => void;
+  showPublishForm: boolean;
   submit: () => Promise<void>;
   xDisconnect: () => Promise<void>;
   xStatus: XConnectionStatus;
@@ -1640,7 +1773,212 @@ function SetupSection({
           </p>
         ) : null}
       </form>
+
+      <PublishSpecialistPanel
+        isPublishing={isPublishing}
+        onPublish={onPublishSpecialist}
+        publishMessage={publishMessage}
+        publishedSpecialists={publishedSpecialists}
+        setShowForm={setShowPublishForm}
+        showForm={showPublishForm}
+      />
     </section>
+  );
+}
+
+function PublishSpecialistPanel({
+  isPublishing,
+  onPublish,
+  publishMessage,
+  publishedSpecialists,
+  setShowForm,
+  showForm
+}: {
+  isPublishing: boolean;
+  onPublish: (input: PublishSpecialistFormValues) => Promise<boolean>;
+  publishMessage: string | null;
+  publishedSpecialists: SpecialistAgent[];
+  setShowForm: (value: boolean) => void;
+  showForm: boolean;
+}) {
+  const [values, setValues] = useState<PublishSpecialistFormValues>(
+    emptyPublishForm
+  );
+  const update = (field: keyof PublishSpecialistFormValues, value: string) =>
+    setValues((current) => ({ ...current, [field]: value }));
+
+  return (
+    <div className="mt-16 max-w-2xl border-t hairline pt-10">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-md">
+          <p className="text-sm font-medium text-[#18181b]">For agent creators</p>
+          <p className="mt-2 text-sm leading-6 text-[#52525b]">
+            Publish an agent that can bid for paid growth work. A specialist is
+            an independent seller agent — it competes for jobs and its owner is
+            paid on Solana after delivery.
+          </p>
+          {publishedSpecialists.length > 0 ? (
+            <p className="mt-2 text-xs text-[#71717a]">
+              {publishedSpecialists.length} community{" "}
+              {publishedSpecialists.length === 1 ? "agent" : "agents"} already
+              listed in the marketplace.
+            </p>
+          ) : null}
+        </div>
+        <button
+          className="rounded-full border hairline bg-white px-4 py-2.5 text-sm font-medium text-[#0a0a0a] transition hover:border-[#0a0a0a]"
+          onClick={() => setShowForm(!showForm)}
+          type="button"
+        >
+          {showForm ? "Close" : "Publish Specialist"}
+        </button>
+      </div>
+
+      {showForm ? (
+        <form
+          className="mt-6 grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void onPublish(values).then((ok) => {
+              if (ok) {
+                setValues(emptyPublishForm);
+              }
+            });
+          }}
+        >
+          <PublishField label="Agent name">
+            <input
+              className="field h-12 px-4 text-sm"
+              onChange={(event) => update("name", event.target.value)}
+              placeholder="e.g. Launch Video Specialist"
+              required
+              value={values.name}
+            />
+          </PublishField>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <PublishField label="Owner name">
+              <input
+                className="field h-12 px-4 text-sm"
+                onChange={(event) => update("ownerName", event.target.value)}
+                placeholder="Your name or studio"
+                required
+                value={values.ownerName}
+              />
+            </PublishField>
+            <PublishField label="Owner wallet">
+              <input
+                className="field h-12 px-4 text-sm"
+                onChange={(event) => update("ownerWallet", event.target.value)}
+                placeholder="Solana address for payouts"
+                required
+                value={values.ownerWallet}
+              />
+            </PublishField>
+          </div>
+
+          <PublishField
+            hint="Comma-separated, e.g. video-scripts, editing, thumbnails"
+            label="Capabilities"
+          >
+            <input
+              className="field h-12 px-4 text-sm"
+              onChange={(event) => update("capabilities", event.target.value)}
+              placeholder="capability-one, capability-two"
+              required
+              value={values.capabilities}
+            />
+          </PublishField>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <PublishField label="Base price (SOL)">
+              <input
+                className="field h-12 px-4 text-sm"
+                min={0}
+                onChange={(event) => update("basePriceSol", event.target.value)}
+                step={0.05}
+                type="number"
+                value={values.basePriceSol}
+              />
+            </PublishField>
+            <PublishField label="Delivery days">
+              <input
+                className="field h-12 px-4 text-sm"
+                min={1}
+                onChange={(event) => update("deliveryDays", event.target.value)}
+                step={1}
+                type="number"
+                value={values.deliveryDays}
+              />
+            </PublishField>
+            <PublishField label="Version">
+              <input
+                className="field h-12 px-4 text-sm"
+                onChange={(event) => update("version", event.target.value)}
+                placeholder="1.0.0"
+                required
+                value={values.version}
+              />
+            </PublishField>
+          </div>
+
+          <PublishField label="Model">
+            <input
+              className="field h-12 px-4 text-sm"
+              onChange={(event) => update("model", event.target.value)}
+              placeholder="e.g. claude-sonnet-5"
+              required
+              value={values.model}
+            />
+          </PublishField>
+
+          <PublishField
+            hint="How the agent should approach growth work. Grounds its bids and delivery."
+            label="Prompt"
+          >
+            <textarea
+              className="field min-h-28 resize-y px-4 py-3 text-sm leading-6"
+              onChange={(event) => update("prompt", event.target.value)}
+              placeholder="You are a specialist that..."
+              required
+              value={values.prompt}
+            />
+          </PublishField>
+
+          <button
+            className="mt-1 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
+            disabled={isPublishing}
+            type="submit"
+          >
+            {isPublishing ? "Publishing..." : "Publish to marketplace"}
+          </button>
+        </form>
+      ) : null}
+
+      {publishMessage ? (
+        <p className="mt-4 rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#27272a]">
+          {publishMessage}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function PublishField({
+  children,
+  hint,
+  label
+}: {
+  children: ReactNode;
+  hint?: string;
+  label: string;
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-sm font-medium text-[#18181b]">{label}</span>
+      {children}
+      {hint ? <span className="text-xs text-[#71717a]">{hint}</span> : null}
+    </label>
   );
 }
 
@@ -3433,13 +3771,24 @@ function specialistDisplayName(bid: Pick<Bid, "specialistId">) {
 }
 
 function seedReputationMap() {
-  return specialistRegistry.reduce(
+  return seedReputationFromAgents(specialistRegistry);
+}
+
+function seedReputationFromAgents(agents: SpecialistAgent[]) {
+  return agents.reduce(
     (map, agent) => {
       map[agent.id] = seedReputationFor(agent);
       return map;
     },
     {} as Record<SpecialistId, SpecialistReputation>
   );
+}
+
+function parseCapabilities(value: string) {
+  return value
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function reputationLine(reputation: SpecialistReputation) {

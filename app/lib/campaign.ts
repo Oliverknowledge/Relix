@@ -5,9 +5,11 @@ import {
 } from "@/app/lib/github-tool";
 import {
   getSpecialistAgent,
+  isBuiltInSpecialist,
   listActiveSpecialistAdapters,
   seedReputationFor,
   type Bid,
+  type BuiltInSpecialistId,
   type SpecialistAgent,
   type SpecialistId,
   type SpecialistJobContext,
@@ -290,8 +292,12 @@ function evaluateBid(
           1,
           (context.budgetSol - bid.priceSol) / Math.max(context.budgetSol, 0.01)
         );
-  const goalFit = goalAffinity(bid.specialistId, context.goal);
-  const repoFit = repoWebsiteAffinity(bid.specialistId, context);
+  const goalFit = isBuiltInSpecialist(bid.specialistId)
+    ? goalAffinity(bid.specialistId, context.goal)
+    : genericGoalAffinity(agent, context);
+  const repoFit = isBuiltInSpecialist(bid.specialistId)
+    ? repoWebsiteAffinity(bid.specialistId, context)
+    : genericRepoAffinity(context);
   const deliveryFit =
     bid.deliveryDays > context.daysRemaining
       ? 0.2
@@ -330,7 +336,29 @@ function reputationAffinity(reputation: SpecialistReputation) {
   return trackRecord + ratingSignal;
 }
 
-function goalAffinity(specialistId: SpecialistId, goal: string) {
+// Published specialists have no hand-tuned affinity, so goal fit comes from how
+// well their declared capabilities match what this job needs. The 0.8 floor
+// keeps a plausible-but-unmatched newcomer competitive on budget and delivery.
+function genericGoalAffinity(
+  agent: SpecialistAgent,
+  context: SpecialistJobContext
+) {
+  const matched = matchedCapabilities(agent, context).length;
+
+  return Math.min(0.8 + matched * 0.4, 2);
+}
+
+function genericRepoAffinity(context: SpecialistJobContext) {
+  let fit = context.commitMessages.length > 0 ? 1.1 : 0.4;
+
+  if (context.websiteRead) {
+    fit += 0.3;
+  }
+
+  return Math.min(fit, 2);
+}
+
+function goalAffinity(specialistId: BuiltInSpecialistId, goal: string) {
   const text = goal.toLowerCase();
 
   if (specialistId === "tournament") {
@@ -355,7 +383,7 @@ function goalAffinity(specialistId: SpecialistId, goal: string) {
 }
 
 function repoWebsiteAffinity(
-  specialistId: SpecialistId,
+  specialistId: BuiltInSpecialistId,
   context: SpecialistJobContext
 ) {
   const area = context.productArea.toLowerCase();
@@ -485,7 +513,7 @@ function selectionReason({
     `the ${formatSol(winningBid.priceSol)} bid fits the ${formatSol(
       context.budgetSol
     )} budget`,
-    goalReasonLine(winningBid.specialistId, context),
+    goalReasonLine(agent, context),
     repoReasonLine(winningBid.specialistId, context),
     deliveryLine,
     matched.length > 0
@@ -513,25 +541,28 @@ function selectionReason({
   return base;
 }
 
-function goalReasonLine(
-  specialistId: SpecialistId,
-  context: SpecialistJobContext
-) {
+function goalReasonLine(agent: SpecialistAgent, context: SpecialistJobContext) {
   const goal = `your goal "${context.goal}"`;
 
-  if (specialistId === "tournament") {
+  if (agent.id === "tournament") {
     return `${goal} needs urgency, and a time-boxed event creates a real deadline`;
   }
 
-  if (specialistId === "creator-outreach") {
+  if (agent.id === "creator-outreach") {
     return `${goal} needs visible proof, which creator sessions provide`;
   }
 
-  if (specialistId === "referral") {
+  if (agent.id === "referral") {
     return `${goal} compounds fastest through invites from existing users`;
   }
 
-  return `${goal} is served by calm, founder-led communication`;
+  if (agent.id === "community") {
+    return `${goal} is served by calm, founder-led communication`;
+  }
+
+  const focus = agent.capabilities.slice(0, 2).join(" and ") || "growth work";
+
+  return `${goal} lines up with this seller's ${focus} focus`;
 }
 
 function repoReasonLine(

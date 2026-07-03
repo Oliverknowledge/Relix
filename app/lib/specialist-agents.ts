@@ -1,10 +1,26 @@
 import type { SpecialistAgentAdapter } from "@/app/lib/specialist-sdk";
 
-export type SpecialistId =
+// Specialist ids are open-ended so third parties can publish their own seller
+// agents. The four built-ins keep stable ids; published agents get generated
+// ids at publish time.
+export type SpecialistId = string;
+
+export type BuiltInSpecialistId =
   | "creator-outreach"
   | "tournament"
   | "referral"
   | "community";
+
+export const BUILT_IN_SPECIALIST_IDS: BuiltInSpecialistId[] = [
+  "creator-outreach",
+  "tournament",
+  "referral",
+  "community"
+];
+
+export function isBuiltInSpecialist(id: SpecialistId): id is BuiltInSpecialistId {
+  return (BUILT_IN_SPECIALIST_IDS as string[]).includes(id);
+}
 
 export type SpecialistAgentStatus = "active" | "paused";
 
@@ -234,6 +250,9 @@ export const communityLaunchSpecialist: SpecialistAgentAdapter = {
   }
 };
 
+// The four built-in seller agents. `specialistRegistry` stays built-in only so
+// server-side reputation seeding is stable; published agents are registered at
+// runtime into the lookup maps below.
 export const specialistAdapters: SpecialistAgentAdapter[] = [
   creatorOutreachSpecialist,
   tournamentSpecialist,
@@ -245,30 +264,43 @@ export const specialistRegistry: SpecialistAgent[] = specialistAdapters.map(
   (adapter) => adapter.metadata()
 );
 
-const agentsById = Object.fromEntries(
-  specialistRegistry.map((agent) => [agent.id, agent])
-) as Record<SpecialistId, SpecialistAgent>;
+const adaptersById = new Map<SpecialistId, SpecialistAgentAdapter>();
 
-const adaptersById = Object.fromEntries(
-  specialistAdapters.map((adapter) => [adapter.metadata().id, adapter])
-) as Record<SpecialistId, SpecialistAgentAdapter>;
+function indexAdapter(adapter: SpecialistAgentAdapter) {
+  adaptersById.set(adapter.metadata().id, adapter);
+}
+
+specialistAdapters.forEach(indexAdapter);
+
+/**
+ * Register a published seller agent so it can bid, be selected, and deliver
+ * alongside the built-in specialists. Called client-side after fetching
+ * published agents and immediately after a new one is published.
+ */
+export function registerPublishedSpecialist(agent: SpecialistAgent) {
+  indexAdapter(createGenericSpecialistAdapter(agent));
+}
+
+export function registerPublishedSpecialists(agents: SpecialistAgent[]) {
+  agents.forEach(registerPublishedSpecialist);
+}
 
 export function getSpecialistAgent(id: SpecialistId): SpecialistAgent {
-  return agentsById[id];
+  return adaptersById.get(id)?.metadata() as SpecialistAgent;
 }
 
 export function getSpecialistAdapter(id: SpecialistId): SpecialistAgentAdapter {
-  return adaptersById[id];
+  return adaptersById.get(id) as SpecialistAgentAdapter;
 }
 
 export function listActiveSpecialistAdapters(): SpecialistAgentAdapter[] {
-  return specialistAdapters.filter(
+  return [...adaptersById.values()].filter(
     (adapter) => adapter.metadata().status === "active"
   );
 }
 
 export function listActiveSpecialistAgents(): SpecialistAgent[] {
-  return specialistRegistry.filter((agent) => agent.status === "active");
+  return listActiveSpecialistAdapters().map((adapter) => adapter.metadata());
 }
 
 export function seedReputationFor(agent: SpecialistAgent): SpecialistReputation {
@@ -280,12 +312,153 @@ export function seedReputationFor(agent: SpecialistAgent): SpecialistReputation 
   };
 }
 
+/**
+ * Wraps any SpecialistAgent (typically a freshly published one that only has
+ * metadata and a prompt) in an adapter that produces a grounded bid and
+ * delivery from its capabilities and the job context.
+ */
+export function createGenericSpecialistAdapter(
+  agent: SpecialistAgent
+): SpecialistAgentAdapter {
+  return {
+    metadata() {
+      return agent;
+    },
+    async bid(request) {
+      return genericBid(agent, request);
+    },
+    async deliver(job) {
+      return genericDelivery(agent, job.request);
+    }
+  };
+}
+
+function genericBid(agent: SpecialistAgent, context: SpecialistJobContext): Bid {
+  const change = shorten(context.launchChange, 80);
+  const capabilityText = agent.capabilities.slice(0, 3).join(", ");
+
+  return {
+    createdAt: new Date().toISOString(),
+    deliverables: genericDeliverables(agent),
+    deliveryDays: agent.deliveryDays,
+    id: bidIdFor(context.jobId, agent.id),
+    jobId: context.jobId,
+    priceSol: priceFromBudget(context.budgetSol, 0.3, agent.basePriceSol),
+    reasoning: `${agent.name} specialises in ${
+      capabilityText || "growth work"
+    }. For "${change}" I would focus on ${
+      context.productArea
+    }, point people at ${ctaOr(context)}, and aim the work at ${goalFocus(
+      context.goal
+    )}.`,
+    risk: `This is a newer published seller, so it has less marketplace history than established specialists. The plan stays grounded in ${context.repository} and your goal to limit that risk.`,
+    specialistId: agent.id
+  };
+}
+
+function genericDelivery(
+  agent: SpecialistAgent,
+  context: SpecialistJobContext
+): SpecialistDelivery {
+  const change = shorten(context.launchChange, 90);
+  const focus = goalFocus(context.goal);
+  const cta = ctaOr(context);
+  const capabilityText = agent.capabilities.join(", ") || "growth work";
+
+  return {
+    report: `${agent.name} prepared a launch pack for "${shorten(
+      context.launchChange,
+      70
+    )}" using its ${capabilityText} capabilities, grounded in ${
+      context.repository
+    } and your goal of ${focus}.`,
+    sections: [
+      {
+        blocks: [
+          {
+            id: "specialist-brief",
+            kind: "note",
+            label: "Specialist brief",
+            text: [
+              `Seller: ${agent.name} v${agent.version}, owned by ${agent.ownerName}.`,
+              `Capabilities applied: ${capabilityText}.`,
+              `What shipped: ${shorten(context.launchChange, 110)} (${context.repository}).`,
+              `Why it matters: recent work centres on ${context.productArea}.`,
+              context.websiteRead
+                ? `Website read: "${shorten(context.websitePromise, 80)}" — traffic goes to ${cta}.`
+                : `Where to send people: ${cta}.`,
+              context.analyticsConnected
+                ? `Analytics: ${context.analyticsSummary}`
+                : `Analytics not connected, so this launch is also the first read on interest.`,
+              `Campaign goal: ${focus}.`
+            ].join("\n")
+          }
+        ],
+        id: "specialist-brief",
+        title: "Specialist Brief"
+      },
+      launchThreadSection([
+        `${context.productName} shipped ${lowerFirst(
+          change
+        )} — and ${agent.name} is putting it in front of the right people.`,
+        `Why it matters: the recent work is about ${context.productArea}, the part new users judge first. Start at ${cta}.`,
+        `This launch is aimed at ${focus}. Try the newest build and tell us where it still feels rough.`
+      ]),
+      {
+        blocks: [
+          {
+            id: "generic-reply-0",
+            kind: "reply",
+            label: "Why should I try it now?",
+            text: `Because the latest ${context.productName} work is focused on ${context.productArea}. This launch points people at ${cta} instead of making a broad claim.`
+          },
+          {
+            id: "generic-reply-1",
+            kind: "reply",
+            label: "What changed?",
+            text: `${shorten(
+              context.launchChange,
+              120
+            )}. The recent commits centre on ${context.productArea}.`
+          },
+          {
+            id: "generic-reply-2",
+            kind: "reply",
+            label: "Is this live?",
+            text: `The assets are ready for founder review. Nothing is posted or sent without approval.`
+          }
+        ],
+        id: "generic-replies",
+        title: "Founder Replies"
+      },
+      followUpSection(
+        `Follow-up for ${context.productName}: what we learned about ${context.productArea} from the launch window, and where ${focus} landed. Specifics tomorrow.`
+      )
+    ],
+    specialistId: agent.id
+  };
+}
+
+function genericDeliverables(agent: SpecialistAgent) {
+  const fromCapabilities = agent.capabilities
+    .slice(0, 3)
+    .map((capability) => capabilityLabel(capability));
+
+  return [...new Set([...fromCapabilities, "Launch thread", "Follow-up post"])];
+}
+
+function capabilityLabel(capability: string) {
+  const words = capability.replace(/[-_]+/g, " ").trim();
+
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export const specialistWallets = Object.fromEntries(
   specialistRegistry.map((agent) => [agent.id, agent.ownerWallet])
 ) as Record<SpecialistId, string>;
 
 function creatorOutreachBid(context: SpecialistJobContext): Bid {
-  const agent = agentsById["creator-outreach"];
+  const agent = creatorOutreachAgent;
   const change = shorten(context.launchChange, 80);
   const audienceLine = context.analyticsConnected
     ? context.analyticsAudience
@@ -319,7 +492,7 @@ function creatorOutreachBid(context: SpecialistJobContext): Bid {
 }
 
 function tournamentBid(context: SpecialistJobContext): Bid {
-  const agent = agentsById.tournament;
+  const agent = tournamentAgent;
   const change = shorten(context.launchChange, 80);
   const rushed = context.daysRemaining <= agent.deliveryDays;
   const analyticsLine = context.analyticsConnected
@@ -356,7 +529,7 @@ function tournamentBid(context: SpecialistJobContext): Bid {
 }
 
 function referralBid(context: SpecialistJobContext): Bid {
-  const agent = agentsById.referral;
+  const agent = referralAgent;
   const change = shorten(context.launchChange, 80);
   const audienceLine = context.analyticsAudience
     ? `Your analytics show an audience already arriving — ${lowerFirst(
@@ -394,7 +567,7 @@ function referralBid(context: SpecialistJobContext): Bid {
 }
 
 function communityBid(context: SpecialistJobContext): Bid {
-  const agent = agentsById.community;
+  const agent = communityAgent;
   const change = shorten(context.launchChange, 80);
   const websiteLine = context.websiteRead
     ? ` The site already promises "${shorten(

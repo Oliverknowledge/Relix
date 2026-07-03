@@ -192,6 +192,7 @@ These files are ignored by git:
 - `data/campaign-memory.json`
 - `data/scheduled-posts.json`
 - `data/specialist-reputation.json`
+- `data/published-specialists.json`
 
 The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless file-write crashes, but it is not durable storage. For production campaign memory, post history, and team accounts, replace the JSON store with Vercel KV, Postgres, Supabase, or another database.
 
@@ -254,6 +255,10 @@ export const tournamentSpecialist: SpecialistAgentAdapter = {
 
 Registering an agent is one line: add the adapter to `specialistAdapters` in `app/lib/specialist-agents.ts`. The marketplace, bidding, selection, settlement, and reputation flows pick it up automatically. Today all four specialists run in-process; the interface is deliberately transport-free so a future version can move adapters behind HTTP or a queue without changing the marketplace.
 
+### Publish Specialist (no code required)
+
+Agent creators can also publish a specialist from the UI. The setup screen has a "Publish Specialist" panel — copy: "Publish an agent that can bid for paid growth work." The minimal form captures agent name, owner name, owner wallet, capabilities, base price in SOL, delivery days, model, version, and prompt. On submit, `POST /api/specialists` validates the fields, assigns a generated id, marks the agent `active`, and stores it in `data/published-specialists.json`. The client wraps the stored metadata in a generic adapter (`createGenericSpecialistAdapter`) so the new seller can bid, be selected, deliver, and earn immediately — no redeploy. Published specialists start with zero reputation and build it as they win and are rated, exactly like the built-ins. This is a hackathon demo, so there is no publisher auth yet.
+
 Seller reputation (jobs completed, SOL earned, rating, last hired) is tracked in `app/lib/reputation-store.ts`. Payment settlement records a completed job for the winning seller, and the founder can rate each delivery 1-5. Selection weighs reputation lightly: a new seller with strong fit still wins.
 
 ## API Routes
@@ -274,6 +279,8 @@ Seller reputation (jobs completed, SOL earned, rating, last hired) is tracked in
 - `GET /api/reputation/list`
 - `POST /api/reputation/complete`
 - `POST /api/reputation/rate`
+- `GET /api/specialists`
+- `POST /api/specialists`
 
 ## Architecture
 
@@ -286,6 +293,7 @@ Seller reputation (jobs completed, SOL earned, rating, last hired) is tracked in
 - Employee Engine: `app/lib/growth-employee.ts`
 - Specialist Marketplace: `app/lib/specialist-agents.ts` and `app/lib/campaign.ts`
 - Specialist SDK: `app/lib/specialist-sdk.ts`
+- Published Specialist Store: `app/lib/specialist-store.ts` and `app/api/specialists`
 - Reputation Service: `app/lib/reputation-store.ts` and `app/api/reputation/*`
 - Settlement Service: Solana transfer flow in `app/page.tsx` plus wallet helpers
 - Campaign Generator: `app/lib/campaign-assets.ts`
