@@ -42,7 +42,6 @@ import type {
 } from "@/app/lib/github-tool";
 import {
   createGrowthEmployeeWork,
-  type EmployeeAction,
   type GrowthEmployeeWork
 } from "@/app/lib/growth-employee";
 import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
@@ -91,6 +90,15 @@ type WorkLogEntry = {
   id: string;
   status: "active" | "done";
   text: string;
+};
+
+type CampaignJobTaskStatus = "pending" | "working" | "waiting" | "completed";
+
+type CampaignJobTask = {
+  detail: string;
+  id: string;
+  status: CampaignJobTaskStatus;
+  title: string;
 };
 
 type FlowStage =
@@ -536,6 +544,10 @@ export default function Home() {
       setReleaseStatus("confirmed");
       setExecutedActionCount(0);
       setIsExecutingWork(true);
+      setActiveStage("complete");
+      window.setTimeout(() => {
+        scrollToElement(resultsRef.current, "smooth");
+      }, 100);
       void refreshBalance();
       void saveCampaignMemory(nextPayment);
       void recordSpecialistPayment(
@@ -551,9 +563,6 @@ export default function Home() {
       }
 
       setIsExecutingWork(false);
-      window.setTimeout(() => {
-        setActiveStage("complete");
-      }, 900);
     } catch (error) {
       setReleaseStatus("idle");
       setReleaseError(
@@ -1797,12 +1806,16 @@ function GuidedResultFlow({
 
         {activeStage === "complete" ? (
           <EmployeeWorkSection
+            analyticsMetrics={analyticsMetrics}
             assets={assets}
             campaign={campaign}
             isExecuting={isExecutingWork}
+            isScheduling={isScheduling}
             payment={payment}
+            publishingPostId={publishingPostId}
             visibleCount={visibleActionCount}
             work={work}
+            xPosts={xPosts}
           />
         ) : null}
       </div>
@@ -3102,106 +3115,108 @@ function EscrowSection({
 }
 
 function EmployeeWorkSection({
+  analyticsMetrics,
   assets,
   campaign,
   isExecuting,
+  isScheduling,
   payment,
+  publishingPostId,
   visibleCount,
-  work
+  work,
+  xPosts
 }: {
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
   assets: GrowthCampaignAssets;
   campaign: CampaignPlan;
   isExecuting: boolean;
+  isScheduling: boolean;
   payment: PaymentResult | null;
+  publishingPostId: string | null;
   visibleCount: number;
   work: GrowthEmployeeWork;
+  xPosts: ScheduledXPost[];
 }) {
-  const visibleActions = work.actions.slice(0, visibleCount);
-  const isComplete = visibleCount >= work.actions.length;
   const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
+  const tasks = campaignJobTasks({
+    analyticsMetrics,
+    isExecuting,
+    isScheduling,
+    payment,
+    publishingPostId,
+    visibleCount,
+    xPosts
+  });
+  const completedCount = tasks.filter((task) => task.status === "completed").length;
+  const waitingCount = tasks.filter((task) => task.status === "waiting").length;
+  const jobStatus = tasks.every((task) => task.status === "completed")
+    ? "Completed"
+    : "Working";
 
   return (
-    <section className="mx-auto max-w-2xl pb-12 text-center">
+    <section className="mx-auto max-w-3xl pb-12">
       <SectionHeading
-        kicker="Employee summary"
-        title={
-          isExecuting
-            ? "Writing today's update."
-            : "Campaign successfully delivered."
-        }
+        kicker="Campaign Job"
+        title={isExecuting ? "Employee is working." : "Campaign job is open."}
       />
 
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-6 text-left soft-shadow sm:p-8">
-        <div className="grid gap-4">
-          {visibleActions.map((action) => (
-            <ActionRow action={action} key={action.id} />
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b hairline pb-6">
+          <div>
+            <p className="text-3xl font-semibold tracking-[-0.04em] text-[#0a0a0a]">
+              Campaign Job
+            </p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#52525b]">
+              Relix is managing the launch as an active job.
+            </p>
+          </div>
+          <div className="rounded-full bg-[#0a0a0a] px-4 py-2 text-sm font-medium text-white">
+            Status: {jobStatus}
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3">
+          {tasks.map((task) => (
+            <CampaignJobTaskRow key={task.id} task={task} />
           ))}
         </div>
 
-        {isComplete ? (
-          <div className="mt-8 border-t hairline pt-8">
+        <div className="mt-8 grid gap-6 border-t hairline pt-8 lg:grid-cols-[1fr_1fr]">
+          <div>
             <p className="text-lg font-medium tracking-[-0.02em] text-[#27272a]">
               Next recommendation
             </p>
-            <p className="mt-3 text-base leading-8 text-[#52525b]">
-              {assets.nextRecommendation}
+            <p className="mt-3 text-sm leading-7 text-[#52525b]">
+              {work.nextRecommendation || assets.nextRecommendation}
             </p>
-
-            {payment ? (
-              <div className="mt-8 border-t hairline pt-8">
-                <p className="text-lg font-medium tracking-[-0.02em] text-[#27272a]">
-                  Who is earning?
-                </p>
-                <p className="mt-2 text-sm leading-6 text-[#52525b]">
-                  The specialist agent owner earns when their agent wins work.
-                </p>
-                <dl className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-xs text-[#71717a]">Buyer</dt>
-                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
-                      Growth Employee
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-[#71717a]">Seller</dt>
-                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
-                      {winnerAgent.name} v{winnerAgent.version}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-[#71717a]">Seller owner</dt>
-                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
-                      {winnerAgent.ownerName} ·{" "}
-                      {shortAddress(winnerAgent.ownerWallet)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-[#71717a]">Settlement</dt>
-                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
-                      {formatSol(payment.settlementSol)} on Solana devnet
-                    </dd>
-                  </div>
-                </dl>
-                <a
-                  className="mt-5 block truncate rounded-full bg-[#0a0a0a] px-5 py-3 text-center text-sm font-medium text-white transition hover:bg-[#27272a]"
-                  href={payment.explorerUrl}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Explorer
-                </a>
-              </div>
-            ) : null}
-
-            <p className="mt-6 rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm font-medium text-[#27272a]">
-              ✓ Campaign successfully handed over.
+            <p className="mt-4 text-xs leading-5 text-[#71717a]">
+              {completedCount} completed · {waitingCount} waiting ·{" "}
+              {tasks.length - completedCount - waitingCount} pending or working
             </p>
           </div>
-        ) : (
-          <p className="mt-6 text-sm text-[#71717a]">
-            Preparing the handover...
-          </p>
-        )}
+
+          {payment ? (
+            <div className="rounded-3xl bg-[#f4f4f5] p-5">
+              <p className="text-sm font-medium text-[#18181b]">
+                Specialist paid
+              </p>
+              <p className="mt-2 text-sm leading-6 text-[#52525b]">
+                {winnerAgent.name} · {winnerAgent.ownerName}
+              </p>
+              <p className="mt-1 text-xs text-[#71717a]">
+                {formatSol(payment.settlementSol)} released on Solana devnet.
+              </p>
+              <a
+                className="mt-4 block truncate rounded-full bg-white px-4 py-2.5 text-center text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+                href={payment.explorerUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Explorer
+              </a>
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -3303,18 +3318,173 @@ function ScheduledXPostRow({
   );
 }
 
-function ActionRow({ action }: { action: EmployeeAction }) {
+function CampaignJobTaskRow({ task }: { task: CampaignJobTask }) {
+  const completed = task.status === "completed";
+  const working = task.status === "working";
+
   return (
-    <div className="enter grid gap-3 rounded-3xl bg-[#f4f4f5] p-5 sm:grid-cols-[24px_1fr]">
-      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0a0a0a] text-xs text-white">
-        ✓
+    <div className="enter grid gap-3 rounded-3xl bg-[#f4f4f5] p-5 sm:grid-cols-[24px_1fr_112px] sm:items-start">
+      <span
+        className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs ${
+          completed
+            ? "border-[#0a0a0a] bg-[#0a0a0a] text-white"
+            : working
+              ? "border-[#0a0a0a] bg-white text-[#0a0a0a]"
+              : "border-[#d4d4d8] bg-white text-[#a1a1aa]"
+        }`}
+      >
+        {completed ? "✓" : working ? "" : ""}
       </span>
       <div>
-        <p className="font-medium tracking-[-0.01em]">{action.title}</p>
-        <p className="mt-2 text-sm leading-6 text-[#52525b]">{action.detail}</p>
+        <p className="font-medium tracking-[-0.01em]">{task.title}</p>
+        <p className="mt-2 text-sm leading-6 text-[#52525b]">{task.detail}</p>
       </div>
+      <span
+        className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium sm:justify-self-end ${
+          task.status === "completed"
+            ? "bg-[#0a0a0a] text-white"
+            : task.status === "working"
+              ? "bg-white text-[#0a0a0a]"
+              : task.status === "waiting"
+                ? "bg-white text-[#52525b]"
+                : "bg-[#e4e4e7] text-[#71717a]"
+        }`}
+      >
+        {statusLabel(task.status)}
+      </span>
     </div>
   );
+}
+
+function campaignJobTasks({
+  analyticsMetrics,
+  isExecuting,
+  isScheduling,
+  payment,
+  publishingPostId,
+  visibleCount,
+  xPosts
+}: {
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
+  isExecuting: boolean;
+  isScheduling: boolean;
+  payment: PaymentResult | null;
+  publishingPostId: string | null;
+  visibleCount: number;
+  xPosts: ScheduledXPost[];
+}): CampaignJobTask[] {
+  const sequenced = (index: number): CampaignJobTaskStatus => {
+    if (visibleCount > index) {
+      return "completed";
+    }
+
+    if (isExecuting && visibleCount === index) {
+      return "working";
+    }
+
+    return "pending";
+  };
+  const scheduledCount = xPosts.filter((post) =>
+    ["scheduled", "publishing", "published"].includes(post.status)
+  ).length;
+  const publishedCount = xPosts.filter(
+    (post) => post.status === "published"
+  ).length;
+  const analyticsCanCollect = Boolean(analyticsMetrics?.connected);
+
+  return [
+    {
+      detail: "Repository context and recent commits were read before planning.",
+      id: "read-repository",
+      status: sequenced(0),
+      title: "Read repository"
+    },
+    {
+      detail: "The employee identified what changed and why it matters.",
+      id: "understand-product",
+      status: sequenced(1),
+      title: "Understand product"
+    },
+    {
+      detail: "Marketplace bids were compared against the goal, budget and deadline.",
+      id: "select-specialist",
+      status: sequenced(2),
+      title: "Select specialist"
+    },
+    {
+      detail: "The selected specialist prepared the launch thread and supporting copy.",
+      id: "generate-launch-thread",
+      status: sequenced(3),
+      title: "Generate launch thread"
+    },
+    {
+      detail: payment
+        ? "Founder approval received and payment released."
+        : "Waiting for the founder to approve specialist payment.",
+      id: "founder-approval",
+      status: payment ? sequenced(4) : "waiting",
+      title: "Founder approval"
+    },
+    {
+      detail:
+        scheduledCount > 0
+          ? `${scheduledCount} launch post${scheduledCount === 1 ? "" : "s"} scheduled.`
+          : "Waiting for the founder to schedule the approved thread.",
+      id: "schedule-x-thread",
+      status:
+        scheduledCount > 0
+          ? "completed"
+          : isScheduling
+            ? "working"
+            : "waiting",
+      title: "Schedule X thread"
+    },
+    {
+      detail:
+        publishedCount > 0
+          ? `${publishedCount} launch post${publishedCount === 1 ? "" : "s"} published.`
+          : "Ready once the founder approves the launch moment.",
+      id: "publish-launch",
+      status:
+        publishedCount > 0
+          ? "completed"
+          : publishingPostId
+            ? "working"
+            : "pending",
+      title: "Publish launch"
+    },
+    {
+      detail: analyticsCanCollect
+        ? publishedCount > 0
+          ? "Analytics are connected and ready to review launch performance."
+          : "Analytics are connected and waiting for the launch to go live."
+        : "Connect analytics after launch to measure traffic and conversion.",
+      id: "collect-analytics",
+      status:
+        analyticsCanCollect && publishedCount > 0
+          ? "completed"
+          : publishedCount > 0
+            ? "waiting"
+            : "pending",
+      title: "Collect analytics"
+    }
+  ];
+}
+
+function statusLabel(status: CampaignJobTaskStatus) {
+  if (status === "completed") {
+    return "Completed";
+  }
+
+  if (status === "working") {
+    return "Working";
+  }
+
+  if (status === "waiting") {
+    return "Waiting";
+  }
+
+  return "Pending";
 }
 
 function SectionHeading({
