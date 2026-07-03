@@ -143,9 +143,9 @@ export function PublishSpecialistForm({
   };
 
   return (
-    <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
+    <div className="rounded-[2rem] border hairline bg-white p-5 soft-shadow sm:p-6">
       <form
-        className="grid gap-4"
+        className="grid gap-3.5"
         onSubmit={(event) => {
           event.preventDefault();
           void onPublish(values).then((ok) => {
@@ -157,7 +157,7 @@ export function PublishSpecialistForm({
       >
         <PublishField label="Agent name">
           <input
-            className="field h-12 px-4 text-sm"
+            className="field h-11 px-4 text-sm"
             onChange={(event) => update("name", event.target.value)}
             placeholder="e.g. Launch Video Specialist"
             required
@@ -165,10 +165,10 @@ export function PublishSpecialistForm({
           />
         </PublishField>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-3.5 sm:grid-cols-2 sm:items-start">
           <PublishField label="Owner">
             <input
-              className="field h-12 px-4 text-sm"
+              className="field h-11 px-4 text-sm"
               onChange={(event) => update("ownerName", event.target.value)}
               placeholder="Your name or studio"
               required
@@ -177,7 +177,7 @@ export function PublishSpecialistForm({
           </PublishField>
           <PublishField label="Wallet">
             <input
-              className="field h-12 px-4 text-sm"
+              className="field h-11 px-4 text-sm"
               onChange={(event) => update("ownerWallet", event.target.value)}
               placeholder="Solana address for payouts"
               required
@@ -188,7 +188,7 @@ export function PublishSpecialistForm({
 
         <PublishField label="Description">
           <textarea
-            className="field min-h-28 resize-y px-4 py-3 text-sm leading-6"
+            className="field min-h-20 resize-y px-4 py-3 text-sm leading-6"
             onChange={(event) => update("description", event.target.value)}
             placeholder="What this specialist sells in one clear paragraph"
             required
@@ -204,14 +204,14 @@ export function PublishSpecialistForm({
             Choose what this specialist can actually deliver. Relix uses these
             when matching seller agents to founder jobs.
           </p>
-          <div className="mt-1 flex flex-wrap gap-2">
+          <div className="mt-1 flex flex-wrap gap-1.5">
             {specialistCapabilityOptions.map((capability) => {
               const selected = selectedCapabilitySet.has(capability.id);
 
               return (
                 <button
                   aria-pressed={selected}
-                  className={`rounded-full px-3 py-2 text-xs font-medium transition ${
+                  className={`rounded-full px-2.5 py-1.5 text-xs font-medium transition ${
                     selected
                       ? "bg-[#0a0a0a] text-white"
                       : "bg-[#f4f4f5] text-[#52525b] hover:bg-[#e4e4e7]"
@@ -242,7 +242,7 @@ export function PublishSpecialistForm({
           label="Model"
         >
           <select
-            className="field h-12 w-full min-w-0 px-4 text-sm"
+            className="field h-11 w-full min-w-0 px-4 text-sm"
             onChange={(event) => update("model", event.target.value)}
             required
             value={values.model}
@@ -260,7 +260,7 @@ export function PublishSpecialistForm({
           label="Prompt"
         >
           <textarea
-            className="field min-h-32 resize-y px-4 py-3 text-sm leading-6"
+            className="field min-h-24 resize-y px-4 py-3 text-sm leading-6"
             onChange={(event) => update("prompt", event.target.value)}
             placeholder="You are a specialist that..."
             required
@@ -268,10 +268,13 @@ export function PublishSpecialistForm({
           />
         </PublishField>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <PublishField label="Price">
+        <div className="grid gap-3.5 sm:grid-cols-2 sm:items-start">
+          <PublishField
+            hint="SOL paid to the owner wallet after delivery."
+            label="Price"
+          >
             <input
-              className="field h-12 px-4 text-sm"
+              className="field h-11 px-4 text-sm"
               min={0}
               onChange={(event) => update("basePriceSol", event.target.value)}
               step={0.05}
@@ -284,7 +287,7 @@ export function PublishSpecialistForm({
             label="Average delivery time"
           >
             <input
-              className="field h-12 px-4 text-sm"
+              className="field h-11 px-4 text-sm"
               min={1}
               onChange={(event) => update("deliveryDays", event.target.value)}
               step={1}
@@ -295,7 +298,7 @@ export function PublishSpecialistForm({
         </div>
 
         <button
-          className="mt-2 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+          className="mt-1 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
           disabled={isPublishing}
           type="submit"
         >
@@ -549,7 +552,7 @@ function PublishField({
   label: string;
 }) {
   return (
-    <label className="grid gap-2">
+    <label className="grid content-start gap-2">
       <span className="text-sm font-medium text-[#18181b]">{label}</span>
       {children}
       {hint ? <span className="text-xs text-[#71717a]">{hint}</span> : null}

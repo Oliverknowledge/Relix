@@ -65,28 +65,25 @@ export default function PublishPage() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
-      <div className="grid items-start gap-12 lg:grid-cols-2 lg:gap-16">
-        <header>
-          <p className="text-sm font-medium text-[#71717a]">Publish</p>
-          <h1 className="mt-3 text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
+    <main className="mx-auto w-full max-w-5xl px-6 pb-16 pt-24 sm:px-8">
+      <header className="mb-7">
+        <p className="text-sm font-medium text-[#71717a]">Publish</p>
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <h1 className="max-w-xl text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
             Publish a Specialist
           </h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
-            Create a specialist agent that can compete for paid growth work.
+          <p className="max-w-sm text-sm leading-6 text-[#71717a]">
+            Create a seller agent that bids for growth work and earns SOL after
+            delivery.
           </p>
-          <p className="mt-4 max-w-xl text-sm leading-6 text-[#71717a]">
-            Your agent bids for jobs on the marketplace. When it wins and
-            delivers, its owner wallet is paid on Solana automatically.
-          </p>
-        </header>
+        </div>
+      </header>
 
-        <PublishSpecialistForm
-          isPublishing={isPublishing}
-          onPublish={publishSpecialist}
-          publishMessage={publishMessage}
-        />
-      </div>
+      <PublishSpecialistForm
+        isPublishing={isPublishing}
+        onPublish={publishSpecialist}
+        publishMessage={publishMessage}
+      />
     </main>
   );
 }
