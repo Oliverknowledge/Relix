@@ -21,7 +21,6 @@ import {
   type SetStateAction,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore
@@ -54,8 +53,13 @@ import {
 } from "@/app/lib/growth-employee";
 import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
 import {
+  getSpecialistAdapter,
   getSpecialistAgent,
-  type SpecialistDelivery
+  seedReputationFor,
+  specialistRegistry,
+  type SpecialistDelivery,
+  type SpecialistId,
+  type SpecialistReputation
 } from "@/app/lib/specialist-agents";
 import type { RepositoryAnalysis } from "@/app/lib/repository-analysis";
 import { analyzeRepository } from "@/app/lib/repository-analysis";
@@ -167,22 +171,16 @@ export default function Home() {
     disconnect,
     sendTransaction
   } = useWallet();
-  const initialCampaign = useMemo(
-    () =>
-      createCampaignPlan({
-        ...defaultFounderRequest,
-        budgetSol: 10,
-        goal: "Get 500 waitlist signups."
-      }),
-    []
-  );
   const [form, setForm] = useState<FounderRequest>({
     ...defaultFounderRequest,
     budgetSol: 10,
     deadline: "2026-07-18",
     goal: "Get 500 waitlist signups."
   });
-  const [campaign, setCampaign] = useState<CampaignPlan>(initialCampaign);
+  const [campaign, setCampaign] = useState<CampaignPlan | null>(null);
+  const [reputation, setReputation] = useState<
+    Record<SpecialistId, SpecialistReputation>
+  >(seedReputationMap);
   const [githubStatus, setGithubStatus] =
     useState<GitHubStatus>(emptyGitHubStatus);
   const [googleStatus, setGoogleStatus] =
@@ -233,6 +231,8 @@ export default function Home() {
   const [publishingPostId, setPublishingPostId] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  const [deliveryRating, setDeliveryRating] = useState<number | null>(null);
+  const [isRatingDelivery, setIsRatingDelivery] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -300,6 +300,23 @@ export default function Home() {
     []
   );
 
+  const loadReputation = useCallback(async () => {
+    try {
+      const response = await fetch("/api/reputation/list", {
+        cache: "no-store"
+      });
+      const data = (await response.json()) as {
+        reputation?: Record<SpecialistId, SpecialistReputation>;
+      };
+
+      if (data.reputation) {
+        setReputation(data.reputation);
+      }
+    } catch {
+      // Seed reputation from the registry remains in place.
+    }
+  }, []);
+
   const loadRepositories = useCallback(async () => {
     setReposLoading(true);
 
@@ -332,12 +349,13 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void refreshToolStatuses();
+      void loadReputation();
     }, 0);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [refreshToolStatuses]);
+  }, [loadReputation, refreshToolStatuses]);
 
   useEffect(() => {
     if (githubStatus.connected) {
@@ -494,6 +512,10 @@ export default function Home() {
   };
 
   const releasePayment = async () => {
+    if (!campaign) {
+      return;
+    }
+
     if (!publicKey || !connected) {
       setReleaseError("Connect a devnet wallet to release payment.");
       setActiveStage("payment");
@@ -579,6 +601,7 @@ export default function Home() {
       setIsExecutingWork(true);
       void refreshBalance();
       void saveCampaignMemory(nextPayment);
+      void recordSpecialistPayment(winningBid.specialistId, nextPayment);
 
       const actions = growthWork?.actions || [];
       for (let index = 0; index < actions.length; index += 1) {
@@ -628,6 +651,7 @@ export default function Home() {
     setCampaignAssets(null);
     setSpecialistDelivery(null);
     setGrowthWork(null);
+    setDeliveryRating(null);
     setXDrafts({});
     setXPosts([]);
     setScheduleMessage(null);
@@ -720,9 +744,10 @@ export default function Home() {
           defaultFounderRequest.description,
         gameName: humanizeName(context.name)
       };
-      const nextCampaign = createCampaignPlan(nextRequest, {
+      const nextCampaign = await createCampaignPlan(nextRequest, {
         analytics: nextAnalytics,
         github: context,
+        reputation,
         website: nextWebsite
       });
       const nextAssets = createCampaignAssets({
@@ -730,9 +755,12 @@ export default function Home() {
         github: context,
         website: nextWebsite
       });
-      const nextDelivery = getSpecialistAgent(
+      const nextDelivery = await getSpecialistAdapter(
         nextCampaign.winningBid.specialistId
-      ).deliver(nextCampaign.jobContext);
+      ).deliver({
+        bid: nextCampaign.winningBid,
+        request: nextCampaign.jobContext
+      });
       const nextAnalysis = analyzeRepository(context);
       const previousCampaigns = await loadCampaignMemory(context.fullName);
       const nextWork = createGrowthEmployeeWork({
@@ -856,7 +884,7 @@ export default function Home() {
   };
 
   const saveXPostDrafts = async () => {
-    if (!campaignAssets || isSavingDrafts) {
+    if (!campaign || !campaignAssets || isSavingDrafts) {
       return;
     }
 
@@ -909,7 +937,7 @@ export default function Home() {
   };
 
   const scheduleXLaunchPosts = async () => {
-    if (!campaignAssets || isScheduling) {
+    if (!campaign || !campaignAssets || isScheduling) {
       return;
     }
 
@@ -981,7 +1009,7 @@ export default function Home() {
     sourceId: string;
     text: string;
   }) => {
-    if (!campaignAssets || isScheduling) {
+    if (!campaign || !campaignAssets || isScheduling) {
       return;
     }
 
@@ -1053,7 +1081,7 @@ export default function Home() {
     sourceId?: string;
     text?: string;
   }) => {
-    if (!campaignAssets || publishingPostId) {
+    if (!campaign || !campaignAssets || publishingPostId) {
       return;
     }
 
@@ -1212,8 +1240,86 @@ export default function Home() {
     }
   };
 
+  const recordSpecialistPayment = async (
+    specialistId: SpecialistId,
+    paymentResult: PaymentResult
+  ) => {
+    try {
+      const response = await fetch("/api/reputation/complete", {
+        body: JSON.stringify({
+          amountSol: paymentResult.settlementSol,
+          hiredAt: new Date().toISOString(),
+          signature: paymentResult.signature,
+          specialistId
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST"
+      });
+      const data = (await response.json()) as {
+        reputation?: SpecialistReputation;
+      };
+
+      if (data.reputation) {
+        setReputation((current) => ({
+          ...current,
+          [specialistId]: data.reputation as SpecialistReputation
+        }));
+      }
+    } catch {
+      // Reputation recording is best-effort; payment already settled.
+    }
+  };
+
+  const rateDelivery = async (rating: number) => {
+    if (!campaign || !payment || isRatingDelivery || deliveryRating !== null) {
+      return;
+    }
+
+    setIsRatingDelivery(true);
+
+    try {
+      const response = await fetch("/api/reputation/rate", {
+        body: JSON.stringify({
+          rating,
+          signature: payment.signature,
+          specialistId: campaign.winningBid.specialistId
+        }),
+        headers: {
+          "Content-Type": "application/json"
+        },
+        method: "POST"
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        reputation?: SpecialistReputation;
+      };
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not record rating.");
+      }
+
+      setDeliveryRating(rating);
+
+      if (data.reputation) {
+        setReputation((current) => ({
+          ...current,
+          [campaign.winningBid.specialistId]:
+            data.reputation as SpecialistReputation
+        }));
+      }
+    } catch (error) {
+      setReleaseError(
+        error instanceof Error ? error.message : "Could not record rating."
+      );
+    } finally {
+      setIsRatingDelivery(false);
+    }
+  };
+
   const saveCampaignMemory = async (paymentResult: PaymentResult) => {
-    if (!githubContext || !campaignAssets) {
+    if (!campaign || !githubContext || !campaignAssets) {
       return;
     }
 
@@ -1298,6 +1404,7 @@ export default function Home() {
       ) : null}
 
       {hasRun &&
+      campaign &&
       githubContext &&
       campaignAssets &&
       specialistDelivery &&
@@ -1313,9 +1420,11 @@ export default function Home() {
           connected={connected}
           copiedAssetId={copiedAssetId}
           delivery={specialistDelivery}
+          deliveryRating={deliveryRating}
           editingAssetId={editingAssetId}
           error={releaseError}
           isExecutingWork={isExecutingWork}
+          isRatingDelivery={isRatingDelivery}
           isSavingDrafts={isSavingDrafts}
           isScheduling={isScheduling}
           memory={campaignMemory}
@@ -1323,6 +1432,7 @@ export default function Home() {
           onCopyAsset={copyAsset}
           onEditAsset={setEditingAssetId}
           onPublishNow={publishXPostNow}
+          onRate={rateDelivery}
           onRelease={releasePayment}
           onRetryPost={(postId) => publishXPostNow({ postId })}
           onSaveDrafts={saveXPostDrafts}
@@ -1333,6 +1443,7 @@ export default function Home() {
           releaseStatus={releaseStatus}
           repositoryAnalysis={repositoryAnalysis}
           repositoryContext={githubContext}
+          reputation={reputation}
           resultsRef={resultsRef}
           scheduleMessage={scheduleMessage}
           scheduleTime={scheduleTime}
@@ -1399,8 +1510,9 @@ function SetupSection({
           Hire your first AI Growth Employee.
         </h1>
         <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
-          Connect GitHub. Give Relix one goal. It reads what shipped, hires a
-          specialist, settles payment, and prepares approved launch posts.
+          Connect GitHub. Give Relix one goal. Your Growth Employee reads what
+          shipped, collects bids from specialist seller agents, hires the best
+          one, and pays its owner on Solana after delivery.
         </p>
       </div>
 
@@ -1541,9 +1653,11 @@ function GuidedResultFlow({
   connected,
   copiedAssetId,
   delivery,
+  deliveryRating,
   editingAssetId,
   error,
   isExecutingWork,
+  isRatingDelivery,
   isSavingDrafts,
   isScheduling,
   memory,
@@ -1551,6 +1665,7 @@ function GuidedResultFlow({
   onCopyAsset,
   onEditAsset,
   onPublishNow,
+  onRate,
   onRelease,
   onRetryPost,
   onSaveDrafts,
@@ -1561,6 +1676,7 @@ function GuidedResultFlow({
   releaseStatus,
   repositoryAnalysis,
   repositoryContext,
+  reputation,
   resultsRef,
   scheduleMessage,
   scheduleTime,
@@ -1582,9 +1698,11 @@ function GuidedResultFlow({
   connected: boolean;
   copiedAssetId: string | null;
   delivery: SpecialistDelivery;
+  deliveryRating: number | null;
   editingAssetId: string | null;
   error: string | null;
   isExecutingWork: boolean;
+  isRatingDelivery: boolean;
   isSavingDrafts: boolean;
   isScheduling: boolean;
   memory: CampaignMemoryRecord[];
@@ -1597,6 +1715,7 @@ function GuidedResultFlow({
     sourceId?: string;
     text?: string;
   }) => Promise<void>;
+  onRate: (rating: number) => Promise<void>;
   onRelease: () => Promise<void>;
   onRetryPost: (postId: string) => Promise<void>;
   onSaveDrafts: () => Promise<void>;
@@ -1611,6 +1730,7 @@ function GuidedResultFlow({
   releaseStatus: ReleaseStatus;
   repositoryAnalysis: RepositoryAnalysis;
   repositoryContext: GitHubRepositoryContext;
+  reputation: Record<SpecialistId, SpecialistReputation>;
   resultsRef: RefObject<HTMLDivElement | null>;
   scheduleMessage: string | null;
   scheduleTime: string;
@@ -1690,6 +1810,7 @@ function GuidedResultFlow({
           <SpecialistSelectionSection
             campaign={campaign}
             memory={memory}
+            reputation={reputation}
             setActiveStage={setActiveStage}
           />
         ) : null}
@@ -1726,7 +1847,10 @@ function GuidedResultFlow({
         {activeStage === "payment" ? (
           <EscrowSection
             connected={connected}
+            deliveryRating={deliveryRating}
             error={error}
+            isRatingDelivery={isRatingDelivery}
+            onRate={onRate}
             onRelease={onRelease}
             payment={payment}
             balanceSol={balanceSol}
@@ -1739,7 +1863,9 @@ function GuidedResultFlow({
         {activeStage === "complete" ? (
           <EmployeeWorkSection
             assets={assets}
+            campaign={campaign}
             isExecuting={isExecutingWork}
+            payment={payment}
             visibleCount={visibleActionCount}
             work={work}
           />
@@ -1886,10 +2012,12 @@ function LaunchOpportunitySection({
 function SpecialistSelectionSection({
   campaign,
   memory,
+  reputation,
   setActiveStage
 }: {
   campaign: CampaignPlan;
   memory: CampaignMemoryRecord[];
+  reputation: Record<SpecialistId, SpecialistReputation>;
   setActiveStage: (stage: FlowStage) => void;
 }) {
   const previousCampaign = memory[0];
@@ -1901,11 +2029,17 @@ function SpecialistSelectionSection({
         kicker="Specialist marketplace"
         title={`${campaign.bids.length} seller agents submitted bids.`}
       />
+      <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
+        The Growth Employee is the buyer. Specialist agents are sellers. They
+        compete for the job and are paid on Solana after delivery.
+      </p>
 
       <div className="mt-8 grid gap-3">
         {campaign.bids.map((bid) => {
           const agent = getSpecialistAgent(bid.specialistId);
           const selected = bid.id === campaign.winningBid.id;
+          const agentReputation =
+            reputation[bid.specialistId] || seedReputationFor(agent);
 
           return (
             <article
@@ -1932,6 +2066,13 @@ function SpecialistSelectionSection({
                     }`}
                   >
                     {agent.ownerName} · {shortAddress(agent.ownerWallet)}
+                  </p>
+                  <p
+                    className={`mt-1 text-xs ${
+                      selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                    }`}
+                  >
+                    {reputationLine(agentReputation)}
                   </p>
                   <p
                     className={`mt-2 max-w-xl text-sm leading-6 ${
@@ -2856,18 +2997,24 @@ function EscrowSection({
   balanceSol,
   budgetStatus,
   connected,
+  deliveryRating,
   winningBid,
   payment,
   error,
+  isRatingDelivery,
+  onRate,
   releaseStatus,
   onRelease
 }: {
   balanceSol: number | null;
   budgetStatus: CampaignPlan["budgetStatus"];
   connected: boolean;
+  deliveryRating: number | null;
   winningBid: Bid;
   payment: PaymentResult | null;
   error: string | null;
+  isRatingDelivery: boolean;
+  onRate: (rating: number) => Promise<void>;
   releaseStatus: ReleaseStatus;
   onRelease: () => Promise<void>;
 }) {
@@ -2972,6 +3119,39 @@ function EscrowSection({
             >
               Explorer Link
             </a>
+            <div className="rounded-2xl bg-[#f4f4f5] px-4 py-4">
+              <p className="text-sm font-medium text-[#27272a]">
+                {deliveryRating
+                  ? `You rated this delivery ${deliveryRating}/5.`
+                  : "Rate the delivery"}
+              </p>
+              {deliveryRating === null ? (
+                <>
+                  <div className="mt-3 flex gap-2">
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <button
+                        className="h-10 w-10 rounded-full bg-white text-sm font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
+                        disabled={isRatingDelivery}
+                        key={value}
+                        onClick={() => void onRate(value)}
+                        type="button"
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs leading-5 text-[#71717a]">
+                    1 to 5 — the rating becomes part of{" "}
+                    {winnerAgent.name}
+                    {"'"}s marketplace record.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-xs leading-5 text-[#71717a]">
+                  Recorded on the seller reputation of {winnerAgent.name}.
+                </p>
+              )}
+            </div>
           </div>
         ) : (
           <div className="mt-2 grid gap-4">
@@ -3006,17 +3186,22 @@ function EscrowSection({
 
 function EmployeeWorkSection({
   assets,
+  campaign,
   isExecuting,
+  payment,
   visibleCount,
   work
 }: {
   assets: GrowthCampaignAssets;
+  campaign: CampaignPlan;
   isExecuting: boolean;
+  payment: PaymentResult | null;
   visibleCount: number;
   work: GrowthEmployeeWork;
 }) {
   const visibleActions = work.actions.slice(0, visibleCount);
   const isComplete = visibleCount >= work.actions.length;
+  const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
 
   return (
     <section className="mx-auto max-w-2xl pb-12 text-center">
@@ -3044,6 +3229,53 @@ function EmployeeWorkSection({
             <p className="mt-3 text-base leading-8 text-[#52525b]">
               {assets.nextRecommendation}
             </p>
+
+            {payment ? (
+              <div className="mt-8 border-t hairline pt-8">
+                <p className="text-lg font-medium tracking-[-0.02em] text-[#27272a]">
+                  Who is earning?
+                </p>
+                <p className="mt-2 text-sm leading-6 text-[#52525b]">
+                  The specialist agent owner earns when their agent wins work.
+                </p>
+                <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs text-[#71717a]">Buyer</dt>
+                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
+                      Growth Employee
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[#71717a]">Seller</dt>
+                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
+                      {winnerAgent.name} v{winnerAgent.version}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[#71717a]">Seller owner</dt>
+                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
+                      {winnerAgent.ownerName} ·{" "}
+                      {shortAddress(winnerAgent.ownerWallet)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-[#71717a]">Settlement</dt>
+                    <dd className="mt-1 text-sm font-medium text-[#27272a]">
+                      {formatSol(payment.settlementSol)} on Solana devnet
+                    </dd>
+                  </div>
+                </dl>
+                <a
+                  className="mt-5 block truncate rounded-full bg-[#0a0a0a] px-5 py-3 text-center text-sm font-medium text-white transition hover:bg-[#27272a]"
+                  href={payment.explorerUrl}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Explorer
+                </a>
+              </div>
+            ) : null}
+
             <p className="mt-6 rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm font-medium text-[#27272a]">
               ✓ Campaign successfully handed over.
             </p>
@@ -3198,6 +3430,31 @@ function ProofRow({ label, value }: { label: string; value: string }) {
 
 function specialistDisplayName(bid: Pick<Bid, "specialistId">) {
   return getSpecialistAgent(bid.specialistId).name;
+}
+
+function seedReputationMap() {
+  return specialistRegistry.reduce(
+    (map, agent) => {
+      map[agent.id] = seedReputationFor(agent);
+      return map;
+    },
+    {} as Record<SpecialistId, SpecialistReputation>
+  );
+}
+
+function reputationLine(reputation: SpecialistReputation) {
+  if (reputation.jobsCompleted === 0) {
+    return "New seller · no completed jobs yet";
+  }
+
+  const rating =
+    reputation.averageRating > 0
+      ? ` · rated ${reputation.averageRating.toFixed(1)}/5`
+      : "";
+
+  return `${reputation.jobsCompleted} jobs · ${formatSol(
+    reputation.totalEarnedSol
+  )} earned${rating}`;
 }
 
 function firstSentence(text: string) {

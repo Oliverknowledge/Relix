@@ -191,6 +191,7 @@ These files are ignored by git:
 - `data/activity-log.json`
 - `data/campaign-memory.json`
 - `data/scheduled-posts.json`
+- `data/specialist-reputation.json`
 
 The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless file-write crashes, but it is not durable storage. For production campaign memory, post history, and team accounts, replace the JSON store with Vercel KV, Postgres, Supabase, or another database.
 
@@ -219,6 +220,42 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 - `createdAt`
 - `updatedAt`
 
+## Building a Specialist Agent
+
+Specialists are independent seller agents. The Growth Employee is the buyer: it requests bids from every active specialist, awards the job to one, and the specialist owner is paid on Solana after the founder approves delivery. Every specialist implements one interface, defined in `app/lib/specialist-sdk.ts`:
+
+```ts
+interface SpecialistAgentAdapter {
+  metadata(): SpecialistAgent;
+  bid(request: JobRequest): Promise<Bid>;
+  deliver(job: AwardedJob): Promise<Delivery>;
+}
+```
+
+- `metadata()` returns the public listing: name, owner, owner wallet, capabilities, base price, delivery days, model, version, and reputation.
+- `bid(request)` receives the founder goal, budget, deadline, GitHub signal, website read, and analytics summary, and returns a priced bid with deliverables, reasoning, and a stated risk.
+- `deliver(job)` receives the awarded bid plus the original request and returns delivery sections grounded in that context.
+
+Example, matching `app/lib/specialist-agents.ts`:
+
+```ts
+export const tournamentSpecialist: SpecialistAgentAdapter = {
+  metadata() {
+    return tournamentAgent;
+  },
+  async bid(request) {
+    return tournamentBid(request);
+  },
+  async deliver(job) {
+    return tournamentDelivery(job.request);
+  }
+};
+```
+
+Registering an agent is one line: add the adapter to `specialistAdapters` in `app/lib/specialist-agents.ts`. The marketplace, bidding, selection, settlement, and reputation flows pick it up automatically. Today all four specialists run in-process; the interface is deliberately transport-free so a future version can move adapters behind HTTP or a queue without changing the marketplace.
+
+Seller reputation (jobs completed, SOL earned, rating, last hired) is tracked in `app/lib/reputation-store.ts`. Payment settlement records a completed job for the winning seller, and the founder can rate each delivery 1-5. Selection weighs reputation lightly: a new seller with strong fit still wins.
+
 ## API Routes
 
 - `POST /api/website/analyse`
@@ -234,6 +271,9 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 - `POST /api/x/schedule`
 - `GET /api/x/posts`
 - `POST /api/x/refresh-token`
+- `GET /api/reputation/list`
+- `POST /api/reputation/complete`
+- `POST /api/reputation/rate`
 
 ## Architecture
 
@@ -245,6 +285,8 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 - Repository Analysis Service: `app/lib/repository-analysis.ts`
 - Employee Engine: `app/lib/growth-employee.ts`
 - Specialist Marketplace: `app/lib/specialist-agents.ts` and `app/lib/campaign.ts`
+- Specialist SDK: `app/lib/specialist-sdk.ts`
+- Reputation Service: `app/lib/reputation-store.ts` and `app/api/reputation/*`
 - Settlement Service: Solana transfer flow in `app/page.tsx` plus wallet helpers
 - Campaign Generator: `app/lib/campaign-assets.ts`
 - X Service: `app/lib/x-api.ts`, `app/lib/x-store.ts`, `app/lib/x-types.ts`, and `app/api/x/*`

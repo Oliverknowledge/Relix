@@ -5,11 +5,13 @@ import {
 } from "@/app/lib/github-tool";
 import {
   getSpecialistAgent,
-  listActiveSpecialistAgents,
+  listActiveSpecialistAdapters,
+  seedReputationFor,
   type Bid,
   type SpecialistAgent,
   type SpecialistId,
-  type SpecialistJobContext
+  type SpecialistJobContext,
+  type SpecialistReputation
 } from "@/app/lib/specialist-agents";
 import type { WebsiteAnalysis } from "@/app/lib/website-analysis";
 
@@ -28,6 +30,7 @@ export type FounderRequest = {
 export type CampaignSignals = {
   analytics?: GoogleAnalyticsMetrics | null;
   github?: GitHubRepositoryContext | null;
+  reputation?: Partial<Record<SpecialistId, SpecialistReputation>>;
   website?: WebsiteAnalysis | null;
 };
 
@@ -38,6 +41,7 @@ export type BidEvaluation = {
   deliveryFit: number;
   goalFit: number;
   repoFit: number;
+  reputationFit: number;
   specialistId: SpecialistId;
   total: number;
 };
@@ -93,10 +97,10 @@ export const defaultFounderRequest: FounderRequest = {
   websiteUrl: ""
 };
 
-export function createCampaignPlan(
+export async function createCampaignPlan(
   request: FounderRequest,
   signals: CampaignSignals = {}
-): CampaignPlan {
+): Promise<CampaignPlan> {
   const cleanRequest = normalizeRequest(request);
   const daysRemaining = getDaysRemaining(cleanRequest.deadline);
   const id = campaignId(cleanRequest);
@@ -106,12 +110,13 @@ export function createCampaignPlan(
     request: cleanRequest,
     signals
   });
-  const bids = listActiveSpecialistAgents().map((agent) =>
-    agent.createBid(jobContext)
+  const bids = await Promise.all(
+    listActiveSpecialistAdapters().map((adapter) => adapter.bid(jobContext))
   );
   const { budgetStatus, selection, winningBid } = selectWinningBid(
     bids,
-    jobContext
+    jobContext,
+    signals.reputation
   );
 
   return {
@@ -203,8 +208,14 @@ function normalizeRequest(request: FounderRequest): FounderRequest {
   };
 }
 
-function selectWinningBid(bids: Bid[], context: SpecialistJobContext) {
-  const evaluations = bids.map((bid) => evaluateBid(bid, context));
+function selectWinningBid(
+  bids: Bid[],
+  context: SpecialistJobContext,
+  reputation?: Partial<Record<SpecialistId, SpecialistReputation>>
+) {
+  const evaluations = bids.map((bid) =>
+    evaluateBid(bid, context, reputationFor(bid.specialistId, reputation))
+  );
   const totals = new Map(
     evaluations.map((evaluation) => [evaluation.bidId, evaluation.total])
   );
@@ -247,6 +258,7 @@ function selectWinningBid(bids: Bid[], context: SpecialistJobContext) {
         constrainedByBudget,
         context,
         preferredBid,
+        winnerReputation: reputationFor(winningBid.specialistId, reputation),
         winningBid
       })
     },
@@ -254,7 +266,21 @@ function selectWinningBid(bids: Bid[], context: SpecialistJobContext) {
   };
 }
 
-function evaluateBid(bid: Bid, context: SpecialistJobContext): BidEvaluation {
+function reputationFor(
+  specialistId: SpecialistId,
+  reputation?: Partial<Record<SpecialistId, SpecialistReputation>>
+): SpecialistReputation {
+  return (
+    reputation?.[specialistId] ||
+    seedReputationFor(getSpecialistAgent(specialistId))
+  );
+}
+
+function evaluateBid(
+  bid: Bid,
+  context: SpecialistJobContext,
+  reputation: SpecialistReputation
+): BidEvaluation {
   const agent = getSpecialistAgent(bid.specialistId);
   const budgetFit =
     bid.priceSol > context.budgetSol
@@ -274,6 +300,7 @@ function evaluateBid(bid: Bid, context: SpecialistJobContext): BidEvaluation {
     matchedCapabilities(agent, context).length * 0.7,
     2
   );
+  const reputationFit = reputationAffinity(reputation);
 
   return {
     bidId: bid.id,
@@ -282,9 +309,25 @@ function evaluateBid(bid: Bid, context: SpecialistJobContext): BidEvaluation {
     deliveryFit: round2(deliveryFit),
     goalFit: round2(goalFit),
     repoFit: round2(repoFit),
+    reputationFit: round2(reputationFit),
     specialistId: bid.specialistId,
-    total: round2(budgetFit + goalFit + repoFit + deliveryFit + capabilityFit)
+    total: round2(
+      budgetFit + goalFit + repoFit + deliveryFit + capabilityFit + reputationFit
+    )
   };
+}
+
+// Deliberately small (max ~0.6 against a ~9 fit scale): a strong-fit
+// specialist with no history must still be able to win, and an unrated
+// newcomer gets a neutral prior instead of a penalty.
+function reputationAffinity(reputation: SpecialistReputation) {
+  const trackRecord = Math.min(0.3, reputation.jobsCompleted * 0.04);
+  const ratingSignal =
+    reputation.averageRating > 0
+      ? (reputation.averageRating - 3) * 0.15
+      : 0.12;
+
+  return trackRecord + ratingSignal;
 }
 
 function goalAffinity(specialistId: SpecialistId, goal: string) {
@@ -423,11 +466,13 @@ function selectionReason({
   constrainedByBudget,
   context,
   preferredBid,
+  winnerReputation,
   winningBid
 }: {
   constrainedByBudget: boolean;
   context: SpecialistJobContext;
   preferredBid: Bid;
+  winnerReputation: SpecialistReputation;
   winningBid: Bid;
 }) {
   const agent = getSpecialistAgent(winningBid.specialistId);
@@ -447,7 +492,15 @@ function selectionReason({
       ? `its capabilities (${matched.join(", ")}) cover what this job needs`
       : `its capabilities are the closest fit on the marketplace`
   ];
-  const base = `I selected ${agent.name} because ${parts.join("; ")}.`;
+  const reputationLine =
+    winnerReputation.averageRating > 0
+      ? ` Its ${winnerReputation.averageRating.toFixed(1)}-star record over ${
+          winnerReputation.jobsCompleted
+        } jobs adds confidence.`
+      : ` It is a newer seller with no completed jobs yet — selected on fit.`;
+  const base = `I selected ${agent.name} because ${parts.join(
+    "; "
+  )}.${reputationLine}`;
 
   if (constrainedByBudget) {
     const preferredAgent = getSpecialistAgent(preferredBid.specialistId);

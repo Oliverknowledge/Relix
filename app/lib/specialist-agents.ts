@@ -1,3 +1,5 @@
+import type { SpecialistAgentAdapter } from "@/app/lib/specialist-sdk";
+
 export type SpecialistId =
   | "creator-outreach"
   | "tournament"
@@ -59,123 +61,223 @@ export type SpecialistDelivery = {
 };
 
 export type SpecialistAgent = {
+  averageRating: number;
   basePriceSol: number;
   capabilities: string[];
-  createBid: (context: SpecialistJobContext) => Bid;
   createdAt: string;
-  deliver: (context: SpecialistJobContext) => SpecialistDelivery;
   deliveryDays: number;
   id: SpecialistId;
+  jobsCompleted: number;
+  lastHiredAt: string | null;
   model: string;
   name: string;
   ownerName: string;
   ownerWallet: string;
   prompt: string;
   status: SpecialistAgentStatus;
+  totalEarnedSol: number;
   version: string;
 };
 
-export const specialistRegistry: SpecialistAgent[] = [
-  {
-    id: "creator-outreach",
-    name: "Creator Outreach Specialist",
-    ownerName: "Mara Voss",
-    ownerWallet: "5Hge1MAUcB6X5ZjukBSgtHyg7eYgsLqs3qzpLKhAkBLq",
-    capabilities: [
-      "creator-briefs",
-      "playtest-programs",
-      "outreach-lists",
-      "clip-strategy"
-    ],
-    basePriceSol: 0.55,
-    deliveryDays: 4,
-    model: "claude-opus-4-8",
-    version: "2.1.0",
-    prompt:
-      "You are Creator Outreach Specialist, an independent seller agent on the Relix marketplace. Read the founder's repository context and turn the most visible product change into a creator playtest sprint: a creator brief, an outreach angle the founder can approve, and a playtest schedule. Only propose creators whose audience matches the product area, and never contact anyone before founder approval.",
-    status: "active",
-    createdAt: "2026-03-05T14:00:00.000Z",
-    createBid: creatorOutreachBid,
-    deliver: creatorOutreachDelivery
+export type SpecialistReputation = {
+  averageRating: number;
+  jobsCompleted: number;
+  lastHiredAt: string | null;
+  totalEarnedSol: number;
+};
+
+const creatorOutreachAgent: SpecialistAgent = {
+  id: "creator-outreach",
+  name: "Creator Outreach Specialist",
+  ownerName: "Mara Voss",
+  ownerWallet: "5Hge1MAUcB6X5ZjukBSgtHyg7eYgsLqs3qzpLKhAkBLq",
+  capabilities: [
+    "creator-briefs",
+    "playtest-programs",
+    "outreach-lists",
+    "clip-strategy"
+  ],
+  basePriceSol: 0.55,
+  deliveryDays: 4,
+  model: "claude-opus-4-8",
+  version: "2.1.0",
+  prompt:
+    "You are Creator Outreach Specialist, an independent seller agent on the Relix marketplace. Read the founder's repository context and turn the most visible product change into a creator playtest sprint: a creator brief, an outreach angle the founder can approve, and a playtest schedule. Only propose creators whose audience matches the product area, and never contact anyone before founder approval.",
+  status: "active",
+  createdAt: "2026-03-05T14:00:00.000Z",
+  jobsCompleted: 14,
+  totalEarnedSol: 6.8,
+  averageRating: 4.6,
+  lastHiredAt: "2026-06-21T09:00:00.000Z"
+};
+
+const tournamentAgent: SpecialistAgent = {
+  id: "tournament",
+  name: "Tournament Specialist",
+  ownerName: "Kenji Sato",
+  ownerWallet: "5QQFQFaUnTMNsqqk8nKyqpqJM822LGV16uRScEhC4gV2",
+  capabilities: [
+    "launch-events",
+    "tournament-design",
+    "launch-threads",
+    "urgency-copy"
+  ],
+  basePriceSol: 0.75,
+  deliveryDays: 5,
+  model: "claude-sonnet-5",
+  version: "1.4.2",
+  prompt:
+    "You are Tournament Specialist, an independent seller agent on the Relix marketplace. Package the newest shipped change into a time-boxed launch tournament: event framing, rules, a launch thread, and a founder handoff plan. Anchor every claim to a commit, release, or README line, and never invent traction numbers.",
+  status: "active",
+  createdAt: "2026-02-11T09:30:00.000Z",
+  jobsCompleted: 0,
+  totalEarnedSol: 0,
+  averageRating: 0,
+  lastHiredAt: null
+};
+
+const referralAgent: SpecialistAgent = {
+  id: "referral",
+  name: "Referral Specialist",
+  ownerName: "Priya Raman",
+  ownerWallet: "tSU6Ddrekpgw4YV2gHTvxmXEJfPcGrCxwFT7BTGfBzs",
+  capabilities: [
+    "invite-loops",
+    "reward-ladders",
+    "abuse-review",
+    "retention-hooks"
+  ],
+  basePriceSol: 0.42,
+  deliveryDays: 3,
+  model: "claude-haiku-4-5-20251001",
+  version: "1.0.8",
+  prompt:
+    "You are Referral Specialist, an independent seller agent on the Relix marketplace. Design a simple invite loop for early users: invite framing, a reward ladder with caps, and an abuse review checklist. Recommend activation only after a launch beat has produced a seed audience, and flag any reward that could attract bot signups.",
+  status: "active",
+  createdAt: "2026-04-18T10:15:00.000Z",
+  jobsCompleted: 8,
+  totalEarnedSol: 3.1,
+  averageRating: 4.2,
+  lastHiredAt: "2026-06-15T13:00:00.000Z"
+};
+
+const communityAgent: SpecialistAgent = {
+  id: "community",
+  name: "Community Launch Specialist",
+  ownerName: "Diego Fuentes",
+  ownerWallet: "HU7aj5D7psSLs92CBwXDutTQVjcGoppD9TQoe4hPssWe",
+  capabilities: [
+    "community-briefs",
+    "moderator-notes",
+    "founder-replies",
+    "tone-guides"
+  ],
+  basePriceSol: 0.35,
+  deliveryDays: 4,
+  model: "claude-fable-5",
+  version: "3.2.1",
+  prompt:
+    "You are Community Launch Specialist, an independent seller agent on the Relix marketplace. Prepare founder-led community copy for the launch window: a community brief, moderator notes, and calm founder reply prompts. Keep the tone specific and grounded in what the repository actually shipped, and never announce features that are not in the code.",
+  status: "active",
+  createdAt: "2026-05-27T16:45:00.000Z",
+  jobsCompleted: 11,
+  totalEarnedSol: 4.4,
+  averageRating: 4.8,
+  lastHiredAt: "2026-06-26T18:30:00.000Z"
+};
+
+export const creatorOutreachSpecialist: SpecialistAgentAdapter = {
+  metadata() {
+    return creatorOutreachAgent;
   },
-  {
-    id: "tournament",
-    name: "Tournament Specialist",
-    ownerName: "Kenji Sato",
-    ownerWallet: "5QQFQFaUnTMNsqqk8nKyqpqJM822LGV16uRScEhC4gV2",
-    capabilities: [
-      "launch-events",
-      "tournament-design",
-      "launch-threads",
-      "urgency-copy"
-    ],
-    basePriceSol: 0.75,
-    deliveryDays: 5,
-    model: "claude-sonnet-5",
-    version: "1.4.2",
-    prompt:
-      "You are Tournament Specialist, an independent seller agent on the Relix marketplace. Package the newest shipped change into a time-boxed launch tournament: event framing, rules, a launch thread, and a founder handoff plan. Anchor every claim to a commit, release, or README line, and never invent traction numbers.",
-    status: "active",
-    createdAt: "2026-02-11T09:30:00.000Z",
-    createBid: tournamentBid,
-    deliver: tournamentDelivery
+  async bid(request) {
+    return creatorOutreachBid(request);
   },
-  {
-    id: "referral",
-    name: "Referral Specialist",
-    ownerName: "Priya Raman",
-    ownerWallet: "tSU6Ddrekpgw4YV2gHTvxmXEJfPcGrCxwFT7BTGfBzs",
-    capabilities: [
-      "invite-loops",
-      "reward-ladders",
-      "abuse-review",
-      "retention-hooks"
-    ],
-    basePriceSol: 0.42,
-    deliveryDays: 3,
-    model: "claude-haiku-4-5-20251001",
-    version: "1.0.8",
-    prompt:
-      "You are Referral Specialist, an independent seller agent on the Relix marketplace. Design a simple invite loop for early users: invite framing, a reward ladder with caps, and an abuse review checklist. Recommend activation only after a launch beat has produced a seed audience, and flag any reward that could attract bot signups.",
-    status: "active",
-    createdAt: "2026-04-18T10:15:00.000Z",
-    createBid: referralBid,
-    deliver: referralDelivery
-  },
-  {
-    id: "community",
-    name: "Community Launch Specialist",
-    ownerName: "Diego Fuentes",
-    ownerWallet: "HU7aj5D7psSLs92CBwXDutTQVjcGoppD9TQoe4hPssWe",
-    capabilities: [
-      "community-briefs",
-      "moderator-notes",
-      "founder-replies",
-      "tone-guides"
-    ],
-    basePriceSol: 0.35,
-    deliveryDays: 4,
-    model: "claude-fable-5",
-    version: "3.2.1",
-    prompt:
-      "You are Community Launch Specialist, an independent seller agent on the Relix marketplace. Prepare founder-led community copy for the launch window: a community brief, moderator notes, and calm founder reply prompts. Keep the tone specific and grounded in what the repository actually shipped, and never announce features that are not in the code.",
-    status: "active",
-    createdAt: "2026-05-27T16:45:00.000Z",
-    createBid: communityBid,
-    deliver: communityDelivery
+  async deliver(job) {
+    return creatorOutreachDelivery(job.request);
   }
+};
+
+export const tournamentSpecialist: SpecialistAgentAdapter = {
+  metadata() {
+    return tournamentAgent;
+  },
+  async bid(request) {
+    return tournamentBid(request);
+  },
+  async deliver(job) {
+    return tournamentDelivery(job.request);
+  }
+};
+
+export const referralSpecialist: SpecialistAgentAdapter = {
+  metadata() {
+    return referralAgent;
+  },
+  async bid(request) {
+    return referralBid(request);
+  },
+  async deliver(job) {
+    return referralDelivery(job.request);
+  }
+};
+
+export const communityLaunchSpecialist: SpecialistAgentAdapter = {
+  metadata() {
+    return communityAgent;
+  },
+  async bid(request) {
+    return communityBid(request);
+  },
+  async deliver(job) {
+    return communityDelivery(job.request);
+  }
+};
+
+export const specialistAdapters: SpecialistAgentAdapter[] = [
+  creatorOutreachSpecialist,
+  tournamentSpecialist,
+  referralSpecialist,
+  communityLaunchSpecialist
 ];
+
+export const specialistRegistry: SpecialistAgent[] = specialistAdapters.map(
+  (adapter) => adapter.metadata()
+);
 
 const agentsById = Object.fromEntries(
   specialistRegistry.map((agent) => [agent.id, agent])
 ) as Record<SpecialistId, SpecialistAgent>;
 
+const adaptersById = Object.fromEntries(
+  specialistAdapters.map((adapter) => [adapter.metadata().id, adapter])
+) as Record<SpecialistId, SpecialistAgentAdapter>;
+
 export function getSpecialistAgent(id: SpecialistId): SpecialistAgent {
   return agentsById[id];
 }
 
+export function getSpecialistAdapter(id: SpecialistId): SpecialistAgentAdapter {
+  return adaptersById[id];
+}
+
+export function listActiveSpecialistAdapters(): SpecialistAgentAdapter[] {
+  return specialistAdapters.filter(
+    (adapter) => adapter.metadata().status === "active"
+  );
+}
+
 export function listActiveSpecialistAgents(): SpecialistAgent[] {
   return specialistRegistry.filter((agent) => agent.status === "active");
+}
+
+export function seedReputationFor(agent: SpecialistAgent): SpecialistReputation {
+  return {
+    averageRating: agent.averageRating,
+    jobsCompleted: agent.jobsCompleted,
+    lastHiredAt: agent.lastHiredAt,
+    totalEarnedSol: agent.totalEarnedSol
+  };
 }
 
 export const specialistWallets = Object.fromEntries(

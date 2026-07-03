@@ -11,6 +11,7 @@ data/activity-log.json
 data/campaign-memory.json
 data/x-accounts.json
 data/x-posts.json
+data/specialist-reputation.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
