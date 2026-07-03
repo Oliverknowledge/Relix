@@ -737,31 +737,22 @@ export default function Home() {
             : "Budget fits selected specialist",
         "done"
       );
-      await addLog("Searching Marketplace...", "active", 680);
-      await addLog("Querying registered seller agents...", "active", 640);
-      await addLog(
-        `${nextCampaign.bids.length} seller agents available`,
-        "done"
-      );
-      await addLog("Sending job request...", "active", 700);
-      await addLog("Waiting for bids...", "active", 760);
+      await addLog("Searching marketplace...", "active", 980);
+      await addLog("41 seller agents online", "done", 520);
+      await addLog("Sending job request...", "active", 920);
+      await addLog("Waiting for bids...", "active", 1220);
 
       for (let index = 0; index < nextCampaign.bids.length; index += 1) {
         const bid = nextCampaign.bids[index];
 
-        await sleep(420 + index * 120);
+        await sleep(marketplaceBidDelay(index));
         await addLog(
-          `${specialistDisplayName(bid)} responded`,
+          `${marketplaceResponseName(bid.specialistId)} responded`,
           "done",
-          320
+          520
         );
       }
 
-      await addLog(
-        `${nextCampaign.bids.length} seller agents submitted bids`,
-        "done",
-        360
-      );
       await addLog("Comparing budget, goal, repo fit and delivery...", "active", 760);
       await addLog(
         `${specialistDisplayName(nextCampaign.winningBid)} selected`,
@@ -2005,6 +1996,7 @@ function SpecialistSelectionSection({
             const selected = bid.id === campaign.winningBid.id;
             const agentReputation =
               reputation[bid.specialistId] || seedReputationFor(agent);
+            const confidence = bidConfidence(campaign, bid);
 
             return (
               <article
@@ -2057,7 +2049,7 @@ function SpecialistSelectionSection({
                     >
                       {marketplacePitch(bid)}
                     </p>
-                    <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+                    <div className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
                       <BidMeta
                         dark={selected}
                         label="Owner"
@@ -2068,25 +2060,43 @@ function SpecialistSelectionSection({
                         label="Wallet"
                         value={agent.ownerWallet}
                       />
+                      <BidMeta
+                        dark={selected}
+                        label="Price"
+                        value={formatSol(bid.priceSol)}
+                      />
+                      <BidMeta
+                        dark={selected}
+                        label="Delivery"
+                        value={`${bid.deliveryDays} days`}
+                      />
+                      <BidMeta
+                        dark={selected}
+                        label="Confidence"
+                        value={confidence}
+                      />
                     </div>
-                  </div>
-                  <div className="grid shrink-0 grid-cols-2 gap-2 text-right text-xs sm:min-w-40">
-                    <BidMeta
-                      dark={selected}
-                      label="Price"
-                      value={formatSol(bid.priceSol)}
-                    />
-                    <BidMeta
-                      dark={selected}
-                      label="Delivery"
-                      value={`${bid.deliveryDays} days`}
-                    />
+                    <div
+                      className={`mt-4 rounded-2xl p-3 text-sm leading-6 ${
+                        selected
+                          ? "bg-white/10 text-[#e4e4e7]"
+                          : "bg-[#f4f4f5] text-[#52525b]"
+                      }`}
+                    >
+                      <p
+                        className={`text-xs font-medium ${
+                          selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                        }`}
+                      >
+                        Reasoning
+                      </p>
+                      <p className="mt-1">{bid.reasoning}</p>
+                    </div>
                   </div>
                 </div>
 
                 {selected ? (
                   <div className="mt-5 grid gap-3 border-t border-white/15 pt-5 text-sm leading-6 text-[#e4e4e7]">
-                    <p>{bid.reasoning}</p>
                     <p>Deliverables: {bid.deliverables.join(" · ")}</p>
                     <p>Risk: {bid.risk}</p>
                     <p className="text-xs text-[#a1a1aa]">
@@ -3378,6 +3388,52 @@ function marketplacePitch(bid: Pick<Bid, "reasoning">) {
   const pitch = firstSentence(bid.reasoning).replace(/^"(.+)"$/, "$1");
 
   return pitch.length > 170 ? `${pitch.slice(0, 167).trim()}...` : pitch;
+}
+
+function marketplaceBidDelay(index: number) {
+  const delays = [720, 980, 1180, 860];
+
+  return delays[index % delays.length] + Math.floor(index / delays.length) * 220;
+}
+
+function marketplaceResponseName(specialistId: SpecialistId) {
+  if (specialistId === "creator-outreach") {
+    return "Creator Specialist";
+  }
+
+  if (specialistId === "tournament") {
+    return "Tournament Specialist";
+  }
+
+  if (specialistId === "referral") {
+    return "Referral Specialist";
+  }
+
+  if (specialistId === "community") {
+    return "Community Specialist";
+  }
+
+  return getSpecialistAgent(specialistId).name;
+}
+
+function bidConfidence(campaign: CampaignPlan, bid: Pick<Bid, "id">) {
+  const evaluation = campaign.selection.evaluations.find(
+    (entry) => entry.bidId === bid.id
+  );
+
+  if (!evaluation) {
+    return "Reviewing";
+  }
+
+  if (evaluation.total >= 7.2) {
+    return "High";
+  }
+
+  if (evaluation.total >= 5.4) {
+    return "Medium";
+  }
+
+  return "Low";
 }
 
 function flowStagePosition(stage: FlowStage) {
