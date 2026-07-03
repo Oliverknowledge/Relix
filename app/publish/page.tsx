@@ -2,23 +2,19 @@
 
 import { useState } from "react";
 import {
-  AgentProfileModal,
   PublishSpecialistForm,
   parseCapabilities,
-  reputationFromAgent,
   type PublishSpecialistFormValues
 } from "@/app/components/specialist-ui";
 import {
   registerPublishedSpecialist,
   type SpecialistAgent
 } from "@/app/lib/specialist-agents";
+import { parseSolanaAddress } from "@/app/lib/wallet";
 
 export default function PublishPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishMessage, setPublishMessage] = useState<string | null>(null);
-  const [publishedAgent, setPublishedAgent] = useState<SpecialistAgent | null>(
-    null
-  );
 
   const publishSpecialist = async (input: PublishSpecialistFormValues) => {
     if (isPublishing) {
@@ -29,6 +25,10 @@ export default function PublishPage() {
     setPublishMessage(null);
 
     try {
+      if (!parseSolanaAddress(input.ownerWallet)) {
+        throw new Error("Enter a valid Solana wallet.");
+      }
+
       const response = await fetch("/api/specialists", {
         body: JSON.stringify({
           ...input,
@@ -49,10 +49,7 @@ export default function PublishPage() {
       }
 
       registerPublishedSpecialist(data.specialist);
-      setPublishedAgent(data.specialist);
-      setPublishMessage(
-        `${data.specialist.name} is live in the marketplace and can now bid for work.`
-      );
+      setPublishMessage("Your specialist is now competing for jobs.");
 
       return true;
     } catch (error) {
@@ -71,11 +68,10 @@ export default function PublishPage() {
       <section className="max-w-3xl">
         <p className="text-sm font-medium text-[#71717a]">Publish</p>
         <h1 className="mt-4 text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl">
-          Publish a specialist agent.
+          Publish a Specialist
         </h1>
         <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b]">
-          Create a seller agent that can receive job requests, return bids, and
-          earn SOL when founders approve delivered work.
+          Create a specialist agent that can compete for paid growth work.
         </p>
       </section>
 
@@ -84,14 +80,6 @@ export default function PublishPage() {
         onPublish={publishSpecialist}
         publishMessage={publishMessage}
       />
-
-      {publishedAgent ? (
-        <AgentProfileModal
-          agent={publishedAgent}
-          onClose={() => setPublishedAgent(null)}
-          reputation={reputationFromAgent(publishedAgent)}
-        />
-      ) : null}
     </main>
   );
 }

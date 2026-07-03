@@ -12,6 +12,7 @@ export type PublishSpecialistFormValues = {
   basePriceSol: string;
   capabilities: string;
   deliveryDays: string;
+  description: string;
   model: string;
   name: string;
   ownerName: string;
@@ -24,6 +25,7 @@ export const emptyPublishForm: PublishSpecialistFormValues = {
   basePriceSol: "0.5",
   capabilities: "",
   deliveryDays: "4",
+  description: "",
   model: "claude-sonnet-5",
   name: "",
   ownerName: "",
@@ -146,7 +148,7 @@ export function PublishSpecialistForm({
         </PublishField>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <PublishField label="Owner name">
+          <PublishField label="Owner">
             <input
               className="field h-12 px-4 text-sm"
               onChange={(event) => update("ownerName", event.target.value)}
@@ -155,7 +157,7 @@ export function PublishSpecialistForm({
               value={values.ownerName}
             />
           </PublishField>
-          <PublishField label="Owner wallet">
+          <PublishField label="Wallet">
             <input
               className="field h-12 px-4 text-sm"
               onChange={(event) => update("ownerWallet", event.target.value)}
@@ -165,6 +167,16 @@ export function PublishSpecialistForm({
             />
           </PublishField>
         </div>
+
+        <PublishField label="Description">
+          <textarea
+            className="field min-h-28 resize-y px-4 py-3 text-sm leading-6"
+            onChange={(event) => update("description", event.target.value)}
+            placeholder="What this specialist sells in one clear paragraph"
+            required
+            value={values.description}
+          />
+        </PublishField>
 
         <PublishField
           hint="Comma-separated, e.g. video-scripts, editing, thumbnails"
@@ -179,25 +191,14 @@ export function PublishSpecialistForm({
           />
         </PublishField>
 
-        <div className="grid gap-4 sm:grid-cols-3">
-          <PublishField label="Base price (SOL)">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <PublishField label="Model">
             <input
               className="field h-12 px-4 text-sm"
-              min={0}
-              onChange={(event) => update("basePriceSol", event.target.value)}
-              step={0.05}
-              type="number"
-              value={values.basePriceSol}
-            />
-          </PublishField>
-          <PublishField label="Delivery days">
-            <input
-              className="field h-12 px-4 text-sm"
-              min={1}
-              onChange={(event) => update("deliveryDays", event.target.value)}
-              step={1}
-              type="number"
-              value={values.deliveryDays}
+              onChange={(event) => update("model", event.target.value)}
+              placeholder="e.g. claude-sonnet-5"
+              required
+              value={values.model}
             />
           </PublishField>
           <PublishField label="Version">
@@ -210,16 +211,6 @@ export function PublishSpecialistForm({
             />
           </PublishField>
         </div>
-
-        <PublishField label="Model">
-          <input
-            className="field h-12 px-4 text-sm"
-            onChange={(event) => update("model", event.target.value)}
-            placeholder="e.g. claude-sonnet-5"
-            required
-            value={values.model}
-          />
-        </PublishField>
 
         <PublishField
           hint="How the agent should approach growth work. Grounds its bids and delivery."
@@ -234,12 +225,35 @@ export function PublishSpecialistForm({
           />
         </PublishField>
 
+        <div className="grid gap-4 sm:grid-cols-2">
+          <PublishField label="Price">
+            <input
+              className="field h-12 px-4 text-sm"
+              min={0}
+              onChange={(event) => update("basePriceSol", event.target.value)}
+              step={0.05}
+              type="number"
+              value={values.basePriceSol}
+            />
+          </PublishField>
+          <PublishField label="Average delivery time">
+            <input
+              className="field h-12 px-4 text-sm"
+              min={1}
+              onChange={(event) => update("deliveryDays", event.target.value)}
+              step={1}
+              type="number"
+              value={values.deliveryDays}
+            />
+          </PublishField>
+        </div>
+
         <button
           className="mt-1 h-12 w-full rounded-full bg-[#0a0a0a] px-6 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
           disabled={isPublishing}
           type="submit"
         >
-          {isPublishing ? "Publishing..." : "Publish to marketplace"}
+          {isPublishing ? "Publishing..." : "Publish"}
         </button>
       </form>
 

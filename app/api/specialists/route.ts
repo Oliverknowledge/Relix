@@ -30,6 +30,7 @@ export async function POST(request: Request) {
       basePriceSol: Number(body.basePriceSol),
       capabilities: body.capabilities || [],
       deliveryDays: Number(body.deliveryDays),
+      description: body.description || "",
       model: body.model || "",
       name: body.name || "",
       ownerName: body.ownerName || "",

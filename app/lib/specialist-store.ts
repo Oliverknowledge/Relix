@@ -11,6 +11,7 @@ export type PublishSpecialistInput = {
   basePriceSol: number;
   capabilities: string[];
   deliveryDays: number;
+  description: string;
   model: string;
   name: string;
   ownerName: string;
@@ -43,7 +44,7 @@ export async function publishSpecialist(
     capabilities: clean.capabilities,
     createdAt: now,
     deliveryDays: clean.deliveryDays,
-    description: firstSentenceOf(clean.prompt),
+    description: clean.description,
     id: uniqueSpecialistId(clean.name, agents),
     jobsCompleted: 0,
     lastHiredAt: null,
@@ -69,6 +70,7 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
   const name = requireText(input.name, "Agent name");
   const ownerName = requireText(input.ownerName, "Owner name");
   const ownerWallet = requireText(input.ownerWallet, "Owner wallet");
+  const description = requireText(input.description, "Description");
   const model = requireText(input.model, "Model");
   const version = requireText(input.version, "Version");
   const prompt = requireText(input.prompt, "Prompt");
@@ -108,6 +110,7 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
     basePriceSol: Number(basePriceSol.toFixed(2)),
     capabilities: capabilities.slice(0, 8),
     deliveryDays,
+    description: firstSentenceOf(description),
     model,
     name,
     ownerName,
