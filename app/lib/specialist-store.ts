@@ -1,5 +1,10 @@
 import { promises as fs } from "fs";
 import { dataDirectory, dataPath } from "@/app/lib/data-path";
+import {
+  persistentKvAvailable,
+  readJsonFromKv,
+  writeJsonToKv
+} from "@/app/lib/kv-json-store";
 import { isSpecialistCapabilityId } from "@/app/lib/specialist-capabilities";
 import {
   avatarInitials,
@@ -23,6 +28,7 @@ export type PublishSpecialistInput = {
 };
 
 const dataFile = dataPath("published-specialists.json");
+const kvKey = "published-specialists";
 const MAX_PRICE_SOL = 50;
 const MAX_DELIVERY_DAYS = 60;
 
@@ -176,6 +182,12 @@ function uniqueSpecialistId(name: string, agents: SpecialistAgent[]) {
 }
 
 async function readAgents(): Promise<SpecialistAgent[]> {
+  if (persistentKvAvailable()) {
+    const agents = await readJsonFromKv<SpecialistAgent[]>(kvKey);
+
+    return Array.isArray(agents) ? agents : [];
+  }
+
   try {
     const data = await fs.readFile(dataFile, "utf8");
     const parsed = JSON.parse(data) as SpecialistAgent[];
@@ -196,6 +208,11 @@ async function readAgents(): Promise<SpecialistAgent[]> {
 }
 
 async function writeAgents(agents: SpecialistAgent[]) {
+  if (persistentKvAvailable()) {
+    await writeJsonToKv(kvKey, agents);
+    return;
+  }
+
   await fs.mkdir(dataDirectory(), { recursive: true });
   await fs.writeFile(dataFile, JSON.stringify(agents, null, 2), "utf8");
 }

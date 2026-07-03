@@ -26,13 +26,14 @@ Nothing is posted without explicit founder approval.
 - X OAuth 2.0 + PKCE.
 - X access token refresh with `offline.access`.
 - Publishing through `POST /2/tweets` after explicit approval.
+- Durable published specialist storage when Vercel KV / Upstash Redis REST is configured.
 - JSON-backed local records for X accounts, X posts, activity, memory, and internal state.
 
 ## AI Agents
 
 When `ANTHROPIC_API_KEY` is set, the marketplace runs on real Claude inference (server-side only):
 
-- Each specialist is a real AI agent: it bids and delivers using **its own model** (`agent.model`) and **its own system prompt** (`agent.prompt`). The built-ins run Claude Haiku 4.5 to keep cost low; published agents run whatever model they list.
+- Each specialist is a real AI agent: it bids and delivers using **its own model** (`agent.model`) and **its own system prompt** (`agent.prompt`). The built-ins run Claude Haiku 4.5 to keep cost low; published agents choose from the lower-cost Claude model presets.
 - The Growth Employee is a real AI agent too: it reads every bid and **chooses** the specialist, then explains the hire, via Claude (Sonnet 5).
 - After payment, the Growth Employee **assesses the goal against analytics and remaining budget and plans the next campaign** (`POST /api/campaign/next`). One approval runs the next cycle with the evolved goal — an autonomy loop bounded by budget and founder sign-off.
 - Deterministic scoring still decides budget/goal/fit ranking so selection stays auditable; Claude writes the bids, the delivery, and the buyer's reasoning.
@@ -83,6 +84,13 @@ X_CLIENT_SECRET=your_x_oauth_2_client_secret
 X_REDIRECT_URI=http://localhost:3000/api/x/callback
 
 RELIX_TOKEN_ENCRYPTION_KEY=replace_with_a_long_random_secret
+
+# Optional but recommended on Vercel. Without this, published marketplace
+# specialists fall back to local JSON files and may disappear on serverless
+# refreshes or redeploys.
+KV_REST_API_URL=your_vercel_kv_or_upstash_rest_url
+KV_REST_API_TOKEN=your_vercel_kv_or_upstash_rest_token
+RELIX_KV_PREFIX=relix
 ```
 
 Generate a local encryption key:
@@ -195,7 +203,23 @@ Devnet is hardcoded in `app/providers.tsx` with `clusterApiUrl("devnet")`. Mainn
 
 ## Local Data
 
-Local development writes JSON files to `data/`. Vercel writes them to `/tmp/relix-data` because the deployed app bundle is read-only.
+Local development writes JSON files to `data/`. Vercel writes fallback JSON files to `/tmp/relix-data` because the deployed app bundle is read-only.
+
+Published specialists use Vercel KV / Upstash Redis REST when these environment variables are present:
+
+```bash
+KV_REST_API_URL=...
+KV_REST_API_TOKEN=...
+```
+
+This keeps `/publish` and `/marketplace` durable across refreshes, serverless function instances, and redeploys. The same code also accepts Upstash's native variable names:
+
+```bash
+UPSTASH_REDIS_REST_URL=...
+UPSTASH_REDIS_REST_TOKEN=...
+```
+
+OAuth is not required for specialist publishing in the hackathon build. Publishing is intentionally open and lightweight. Add auth later when you need owner accounts, edit/delete permissions, private agents, or paid marketplace onboarding.
 
 On Vercel, the encrypted connected X account is also stored in chunked HTTP-only cookies. This keeps OAuth state available across serverless cold starts for scheduling and publishing. The raw X tokens are never exposed to client JavaScript.
 
@@ -209,7 +233,7 @@ These files are ignored by git:
 - `data/specialist-reputation.json`
 - `data/published-specialists.json`
 
-The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless file-write crashes, but it is not durable storage. For production campaign memory, post history, and team accounts, replace the JSON store with Vercel KV, Postgres, Supabase, or another database.
+The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless file-write crashes, but it is not durable storage. For production campaign memory, post history, and team accounts, replace the remaining JSON stores with Vercel KV, Postgres, Supabase, or another database.
 
 `XAccount` stores:
 
