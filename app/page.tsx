@@ -92,13 +92,45 @@ type WorkLogEntry = {
   text: string;
 };
 
-type CampaignJobTaskStatus = "pending" | "working" | "waiting" | "completed";
+type CampaignStatus =
+  | "active"
+  | "waiting_approval"
+  | "completed"
+  | "paused"
+  | "budget_exhausted";
 
-type CampaignJobTask = {
+type CampaignTaskStatus =
+  | "pending"
+  | "working"
+  | "waiting_approval"
+  | "completed"
+  | "failed";
+
+type CampaignTask = {
+  completedAt?: string;
+  createdAt: string;
   detail: string;
   id: string;
-  status: CampaignJobTaskStatus;
+  owner: string;
+  status: CampaignTaskStatus;
   title: string;
+};
+
+type ActiveCampaignSnapshot = {
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
+  campaign: CampaignPlan;
+  campaignAssets: GrowthCampaignAssets;
+  createdAt: string;
+  githubContext: GitHubRepositoryContext;
+  growthWork: GrowthEmployeeWork;
+  manualPublishedAssetIds: string[];
+  payment: PaymentResult;
+  repositoryAnalysis: RepositoryAnalysis;
+  specialistDelivery: SpecialistDelivery;
+  status: CampaignStatus;
+  updatedAt: string;
+  websiteAnalysis: WebsiteAnalysis | null;
+  xPosts: ScheduledXPost[];
 };
 
 type FlowStage =
@@ -144,6 +176,7 @@ const emptyXStatus: XConnectionStatus = {
   configured: false,
   connected: false
 };
+const ACTIVE_CAMPAIGN_STORAGE_KEY = "relix.activeCampaign.v1";
 const REQUIRED_X_WRITE_SCOPES = [
   "tweet.read",
   "users.read",
@@ -216,6 +249,19 @@ export default function Home() {
   const [isSavingDrafts, setIsSavingDrafts] = useState(false);
   const [publishingPostId, setPublishingPostId] = useState<string | null>(null);
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const [manualPublishedAssetIds, setManualPublishedAssetIds] = useState<
+    string[]
+  >(() => readActiveCampaignSnapshot()?.manualPublishedAssetIds || []);
+  const [campaignStatusOverride, setCampaignStatusOverride] =
+    useState<CampaignStatus | null>(() => {
+      const status = readActiveCampaignSnapshot()?.status;
+
+      return status && ["paused", "completed"].includes(status)
+        ? status
+        : null;
+    });
+  const [activeCampaignSnapshot, setActiveCampaignSnapshot] =
+    useState<ActiveCampaignSnapshot | null>(() => readActiveCampaignSnapshot());
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [deliveryRating, setDeliveryRating] = useState<number | null>(null);
   const [isRatingDelivery, setIsRatingDelivery] = useState(false);
@@ -374,6 +420,59 @@ export default function Home() {
       };
     }
   }, [githubStatus.connected, loadRepositories]);
+
+  useEffect(() => {
+    if (
+      !hasRun ||
+      !campaign ||
+      !githubContext ||
+      !campaignAssets ||
+      !specialistDelivery ||
+      !repositoryAnalysis ||
+      !growthWork ||
+      !payment
+    ) {
+      return;
+    }
+
+    const snapshot = createActiveCampaignSnapshot({
+      analyticsMetrics,
+      campaign,
+      campaignAssets,
+      githubContext,
+      growthWork,
+      manualPublishedAssetIds,
+      payment,
+      repositoryAnalysis,
+      specialistDelivery,
+      statusOverride: campaignStatusOverride,
+      websiteAnalysis,
+      xPosts
+    });
+
+    persistActiveCampaignSnapshot(snapshot);
+    const timer = window.setTimeout(() => {
+      setActiveCampaignSnapshot(snapshot);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    analyticsMetrics,
+    campaign,
+    campaignAssets,
+    campaignStatusOverride,
+    githubContext,
+    growthWork,
+    hasRun,
+    manualPublishedAssetIds,
+    payment,
+    repositoryAnalysis,
+    specialistDelivery,
+    websiteAnalysis,
+    xPosts
+  ]);
 
   useEffect(() => {
     if (!xStatus.connected || !campaign?.id) {
@@ -605,6 +704,8 @@ export default function Home() {
     setXDrafts({});
     setXPosts([]);
     setScheduleMessage(null);
+    setManualPublishedAssetIds([]);
+    setCampaignStatusOverride(null);
     setEditingAssetId(null);
     setActiveStage("working");
     setIsRunning(true);
@@ -808,6 +909,45 @@ export default function Home() {
     } catch {
       setCopiedAssetId(null);
     }
+  };
+
+  const markAssetPublishedManually = (sourceId: string) => {
+    setManualPublishedAssetIds((current) =>
+      current.includes(sourceId) ? current : [...current, sourceId]
+    );
+    setScheduleMessage("Marked as published manually.");
+  };
+
+  const resumeActiveCampaign = () => {
+    if (!activeCampaignSnapshot) {
+      return;
+    }
+
+    setCampaign(activeCampaignSnapshot.campaign);
+    setGithubContext(activeCampaignSnapshot.githubContext);
+    setCampaignAssets(activeCampaignSnapshot.campaignAssets);
+    setSpecialistDelivery(activeCampaignSnapshot.specialistDelivery);
+    setRepositoryAnalysis(activeCampaignSnapshot.repositoryAnalysis);
+    setGrowthWork(activeCampaignSnapshot.growthWork);
+    setPayment(activeCampaignSnapshot.payment);
+    setWebsiteAnalysis(activeCampaignSnapshot.websiteAnalysis);
+    setAnalyticsMetrics(activeCampaignSnapshot.analyticsMetrics);
+    setXPosts(activeCampaignSnapshot.xPosts || []);
+    setManualPublishedAssetIds(
+      activeCampaignSnapshot.manualPublishedAssetIds || []
+    );
+    setCampaignStatusOverride(
+      ["paused", "completed"].includes(activeCampaignSnapshot.status)
+        ? activeCampaignSnapshot.status
+        : null
+    );
+    setExecutedActionCount(activeCampaignSnapshot.growthWork.actions.length);
+    setHasRun(true);
+    setActiveStage("complete");
+
+    window.setTimeout(() => {
+      scrollToElement(resultsRef.current, "smooth");
+    }, 80);
   };
 
   const draftPosts = () => {
@@ -1268,7 +1408,7 @@ export default function Home() {
 
     const record: CampaignMemoryRecord = {
       campaign_id: campaign.id,
-      campaign_outcome: "Campaign assets delivered; publishing remains manual.",
+      campaign_outcome: "Campaign active; launch approval and results remain open.",
       created_at: new Date().toISOString(),
       delivery: campaign.winningBid.deliverables.join(", "),
       goal: campaign.request.goal,
@@ -1302,6 +1442,7 @@ export default function Home() {
     <main>
       {activeStage === "setup" ? (
         <SetupSection
+          activeCampaignSnapshot={activeCampaignSnapshot}
           form={form}
           githubStatus={githubStatus}
           googleStatus={googleStatus}
@@ -1317,6 +1458,7 @@ export default function Home() {
           setForm={setForm}
           setSelectedAnalyticsProperty={setSelectedAnalyticsProperty}
           setSelectedRepo={setSelectedRepo}
+          onResumeCampaign={resumeActiveCampaign}
           submit={hireEmployee}
           xDisconnect={disconnectX}
           xStatus={xStatus}
@@ -1345,6 +1487,7 @@ export default function Home() {
           assets={campaignAssets}
           balanceSol={balanceSol}
           campaign={campaign}
+          campaignStatusOverride={campaignStatusOverride}
           connected={connected}
           copiedAssetId={copiedAssetId}
           delivery={specialistDelivery}
@@ -1355,10 +1498,13 @@ export default function Home() {
           isRatingDelivery={isRatingDelivery}
           isSavingDrafts={isSavingDrafts}
           isScheduling={isScheduling}
+          manualPublishedAssetIds={manualPublishedAssetIds}
           memory={campaignMemory}
           onCancelPost={cancelScheduledXPost}
+          onCampaignStatusChange={setCampaignStatusOverride}
           onCopyAsset={copyAsset}
           onEditAsset={setEditingAssetId}
+          onMarkPublishedManual={markAssetPublishedManually}
           onOpenProfile={setProfileAgentId}
           onPublishNow={publishXPostNow}
           onRate={rateDelivery}
@@ -1405,6 +1551,7 @@ export default function Home() {
 }
 
 function SetupSection({
+  activeCampaignSnapshot,
   form,
   githubStatus,
   googleStatus,
@@ -1420,10 +1567,12 @@ function SetupSection({
   setForm,
   setSelectedAnalyticsProperty,
   setSelectedRepo,
+  onResumeCampaign,
   submit,
   xDisconnect,
   xStatus
 }: {
+  activeCampaignSnapshot: ActiveCampaignSnapshot | null;
   form: FounderRequest;
   githubStatus: GitHubStatus;
   googleStatus: GoogleAnalyticsStatus;
@@ -1439,20 +1588,29 @@ function SetupSection({
   setForm: Dispatch<SetStateAction<FounderRequest>>;
   setSelectedAnalyticsProperty: (value: string) => void;
   setSelectedRepo: (value: string) => void;
+  onResumeCampaign: () => void;
   submit: () => Promise<void>;
   xDisconnect: () => Promise<void>;
   xStatus: XConnectionStatus;
 }) {
   return (
     <section className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-5 py-16 sm:px-8">
+      {activeCampaignSnapshot ? (
+        <MorningUpdate
+          onResume={onResumeCampaign}
+          snapshot={activeCampaignSnapshot}
+        />
+      ) : null}
+
       <div className="max-w-3xl">
         <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
           Hire your first AI Growth Employee.
         </h1>
         <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
-          Connect GitHub. Give Relix one goal. Your Growth Employee reads what
-          shipped, collects bids from specialist seller agents, hires the best
-          one, and pays its owner on Solana after delivery.
+          Connect your product. Set a goal. Relix hires specialist agents,
+          manages your growth budget, executes approved campaign actions,
+          measures results, and keeps working until the goal is reached or the
+          budget is exhausted.
         </p>
       </div>
 
@@ -1585,12 +1743,68 @@ function SetupSection({
   );
 }
 
+function MorningUpdate({
+  onResume,
+  snapshot
+}: {
+  onResume: () => void;
+  snapshot: ActiveCampaignSnapshot;
+}) {
+  const summary = campaignSnapshotSummary(snapshot);
+
+  return (
+    <div className="mb-12 max-w-2xl rounded-[2rem] border hairline bg-white p-6 soft-shadow">
+      <p className="text-sm font-medium text-[#71717a]">Good morning.</p>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="text-xs font-medium text-[#71717a]">
+            Active campaign
+          </p>
+          <p className="mt-1 text-lg font-semibold tracking-[-0.02em] text-[#18181b]">
+            {snapshot.campaign.request.goal}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-[#71717a]">Current status</p>
+          <p className="mt-1 text-lg font-semibold tracking-[-0.02em] text-[#18181b]">
+            {campaignStatusLabel(snapshot.status)}
+          </p>
+        </div>
+      </div>
+      <div className="mt-5">
+        <p className="text-xs font-medium text-[#71717a]">Completed</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {summary.completed.map((item) => (
+            <span
+              className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b]"
+              key={item}
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      </div>
+      <p className="mt-5 text-sm leading-6 text-[#52525b]">
+        {summary.nextRecommendation}
+      </p>
+      <button
+        className="mt-5 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a]"
+        onClick={onResume}
+        type="button"
+      >
+        Resume campaign
+      </button>
+    </div>
+  );
+}
+
 function GuidedResultFlow({
   activeStage,
   analyticsMetrics,
   assets,
   balanceSol,
   campaign,
+  campaignStatusOverride,
   connected,
   copiedAssetId,
   delivery,
@@ -1601,10 +1815,13 @@ function GuidedResultFlow({
   isRatingDelivery,
   isSavingDrafts,
   isScheduling,
+  manualPublishedAssetIds,
   memory,
   onCancelPost,
+  onCampaignStatusChange,
   onCopyAsset,
   onEditAsset,
+  onMarkPublishedManual,
   onOpenProfile,
   onPublishNow,
   onRate,
@@ -1637,6 +1854,7 @@ function GuidedResultFlow({
   assets: GrowthCampaignAssets;
   balanceSol: number | null;
   campaign: CampaignPlan;
+  campaignStatusOverride: CampaignStatus | null;
   connected: boolean;
   copiedAssetId: string | null;
   delivery: SpecialistDelivery;
@@ -1647,10 +1865,13 @@ function GuidedResultFlow({
   isRatingDelivery: boolean;
   isSavingDrafts: boolean;
   isScheduling: boolean;
+  manualPublishedAssetIds: string[];
   memory: CampaignMemoryRecord[];
   onCancelPost: (postId: string) => Promise<void>;
+  onCampaignStatusChange: (status: CampaignStatus) => void;
   onCopyAsset: (id: string, text: string) => Promise<void>;
   onEditAsset: (id: string | null) => void;
+  onMarkPublishedManual: (sourceId: string) => void;
   onPublishNow: (input: {
     label?: string;
     postId?: string;
@@ -1768,9 +1989,11 @@ function GuidedResultFlow({
             editingAssetId={editingAssetId}
             isSavingDrafts={isSavingDrafts}
             isScheduling={isScheduling}
+            manualPublishedAssetIds={manualPublishedAssetIds}
             onCancelPost={onCancelPost}
             onCopyAsset={onCopyAsset}
             onEditAsset={onEditAsset}
+            onMarkPublishedManual={onMarkPublishedManual}
             onPublishNow={onPublishNow}
             onRetryPost={onRetryPost}
             onSaveDrafts={onSaveDrafts}
@@ -1809,11 +2032,16 @@ function GuidedResultFlow({
             analyticsMetrics={analyticsMetrics}
             assets={assets}
             campaign={campaign}
+            campaignStatusOverride={campaignStatusOverride}
             isExecuting={isExecutingWork}
             isScheduling={isScheduling}
+            manualPublishedAssetIds={manualPublishedAssetIds}
+            onCampaignStatusChange={onCampaignStatusChange}
             payment={payment}
             publishingPostId={publishingPostId}
+            repositoryAnalysis={repositoryAnalysis}
             visibleCount={visibleActionCount}
+            websiteAnalysis={websiteAnalysis}
             work={work}
             xPosts={xPosts}
           />
@@ -2514,9 +2742,11 @@ function SpecialistDeliverySection({
   editingAssetId,
   isSavingDrafts,
   isScheduling,
+  manualPublishedAssetIds,
   onCancelPost,
   onCopyAsset,
   onEditAsset,
+  onMarkPublishedManual,
   onPublishNow,
   onRetryPost,
   onSaveDrafts,
@@ -2539,9 +2769,11 @@ function SpecialistDeliverySection({
   editingAssetId: string | null;
   isSavingDrafts: boolean;
   isScheduling: boolean;
+  manualPublishedAssetIds: string[];
   onCancelPost: (postId: string) => Promise<void>;
   onCopyAsset: (id: string, text: string) => Promise<void>;
   onEditAsset: (id: string | null) => void;
+  onMarkPublishedManual: (sourceId: string) => void;
   onPublishNow: (input: {
     label?: string;
     postId?: string;
@@ -2632,15 +2864,18 @@ function SpecialistDeliverySection({
             copiedAssetId={copiedAssetId}
             editingAssetId={editingAssetId}
             isScheduling={isScheduling}
+            manualPublishedAssetIds={manualPublishedAssetIds}
             key={section.id}
             onCopyAsset={onCopyAsset}
             onEditAsset={onEditAsset}
+            onMarkPublishedManual={onMarkPublishedManual}
             onPublishNow={onPublishNow}
             onScheduleOne={onScheduleOne}
             publishingPostId={publishingPostId}
             setXDraftText={setXDraftText}
             title={section.title}
             xDrafts={xDrafts}
+            xPosts={xPosts}
             xStatus={xStatus}
           />
         ))}
@@ -2677,22 +2912,27 @@ function AssetGroup({
   copiedAssetId,
   editingAssetId,
   isScheduling,
+  manualPublishedAssetIds,
   onCopyAsset,
   onEditAsset,
+  onMarkPublishedManual,
   onPublishNow,
   onScheduleOne,
   publishingPostId,
   setXDraftText,
   title,
   xDrafts,
+  xPosts,
   xStatus
 }: {
   blocks: DeliveryAssetBlock[];
   copiedAssetId: string | null;
   editingAssetId: string | null;
   isScheduling: boolean;
+  manualPublishedAssetIds: string[];
   onCopyAsset: (id: string, text: string) => Promise<void>;
   onEditAsset: (id: string | null) => void;
+  onMarkPublishedManual: (sourceId: string) => void;
   onPublishNow: (input: {
     label?: string;
     sourceId?: string;
@@ -2707,6 +2947,7 @@ function AssetGroup({
   setXDraftText: (sourceId: string, text: string) => void;
   title: string;
   xDrafts: Record<string, string>;
+  xPosts: ScheduledXPost[];
   xStatus: XConnectionStatus;
 }) {
   if (blocks.length === 0) {
@@ -2727,13 +2968,16 @@ function AssetGroup({
               editing={editingAssetId === block.id}
               isScheduling={isScheduling}
               key={block.id}
+              manualPublished={manualPublishedAssetIds.includes(block.id)}
               onChange={(nextText) => setXDraftText(block.id, nextText)}
               onCopyAsset={onCopyAsset}
               onEditAsset={onEditAsset}
+              onMarkPublishedManual={onMarkPublishedManual}
               onPublishNow={onPublishNow}
               onScheduleOne={onScheduleOne}
               publishing={publishingPostId === block.id}
               text={text}
+              xPost={xPosts.find((post) => post.sourceId === block.id)}
               xConnected={xStatus.connected}
             />
           );
@@ -2748,22 +2992,27 @@ function DeliveryAssetCard({
   copied,
   editing,
   isScheduling,
+  manualPublished,
   onChange,
   onCopyAsset,
   onEditAsset,
+  onMarkPublishedManual,
   onPublishNow,
   onScheduleOne,
   publishing,
   text,
+  xPost,
   xConnected
 }: {
   block: DeliveryAssetBlock;
   copied: boolean;
   editing: boolean;
   isScheduling: boolean;
+  manualPublished: boolean;
   onChange: (text: string) => void;
   onCopyAsset: (id: string, text: string) => Promise<void>;
   onEditAsset: (id: string | null) => void;
+  onMarkPublishedManual: (sourceId: string) => void;
   onPublishNow: (input: {
     label?: string;
     sourceId?: string;
@@ -2776,11 +3025,20 @@ function DeliveryAssetCard({
   }) => Promise<void>;
   publishing: boolean;
   text: string;
+  xPost?: ScheduledXPost;
   xConnected: boolean;
 }) {
   const remaining = 280 - text.length;
   const canSendToX = validXPost(text);
   const isTweet = block.kind === "tweet";
+  const actionStatus = assetActionStatus({
+    copied,
+    manualPublished,
+    xPost
+  });
+  const composerUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(
+    text
+  )}`;
 
   return (
     <article
@@ -2793,13 +3051,18 @@ function DeliveryAssetCard({
           <p className="text-sm font-medium text-[#18181b]">{block.label}</p>
           <p className="mt-1 text-xs text-[#71717a]">{block.section}</p>
         </div>
-        <span
-          className={`text-xs ${
-            remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
-          }`}
-        >
-          {remaining}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#52525b]">
+            {actionStatus}
+          </span>
+          <span
+            className={`text-xs ${
+              remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
+            }`}
+          >
+            {remaining}
+          </span>
+        </div>
       </div>
 
       {editing ? (
@@ -2861,6 +3124,25 @@ function DeliveryAssetCard({
         >
           {publishing ? "Publishing..." : "Publish"}
         </button>
+        {isTweet && !xConnected ? (
+          <>
+            <a
+              className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+              href={composerUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open X composer
+            </a>
+            <button
+              className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+              onClick={() => onMarkPublishedManual(block.id)}
+              type="button"
+            >
+              Mark as published manually
+            </button>
+          </>
+        ) : null}
       </div>
     </article>
   );
@@ -2969,7 +3251,7 @@ function EscrowSection({
       complete: payment !== null
     },
     {
-      label: "Campaign delivered",
+      label: "Campaign active",
       complete: payment !== null
     }
   ];
@@ -3020,7 +3302,7 @@ function EscrowSection({
         {payment ? (
           <div className="mt-2 grid gap-4">
             <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm font-medium text-[#27272a]">
-              ✓ Campaign successfully handed over.
+              ✓ Campaign is active.
             </p>
             <ProofRow label="Status" value={payment.status} />
             <ProofRow label="Amount" value={formatSol(payment.settlementSol)} />
@@ -3118,64 +3400,111 @@ function EmployeeWorkSection({
   analyticsMetrics,
   assets,
   campaign,
+  campaignStatusOverride,
   isExecuting,
   isScheduling,
+  manualPublishedAssetIds,
+  onCampaignStatusChange,
   payment,
   publishingPostId,
+  repositoryAnalysis,
   visibleCount,
+  websiteAnalysis,
   work,
   xPosts
 }: {
   analyticsMetrics: GoogleAnalyticsMetrics | null;
   assets: GrowthCampaignAssets;
   campaign: CampaignPlan;
+  campaignStatusOverride: CampaignStatus | null;
   isExecuting: boolean;
   isScheduling: boolean;
+  manualPublishedAssetIds: string[];
+  onCampaignStatusChange: (status: CampaignStatus) => void;
   payment: PaymentResult | null;
   publishingPostId: string | null;
+  repositoryAnalysis: RepositoryAnalysis;
   visibleCount: number;
+  websiteAnalysis: WebsiteAnalysis | null;
   work: GrowthEmployeeWork;
   xPosts: ScheduledXPost[];
 }) {
   const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
+  const budget = campaignBudget(campaign, payment);
+  const status = campaignStatus({
+    campaign,
+    manualPublishedAssetIds,
+    override: campaignStatusOverride,
+    payment,
+    xPosts
+  });
   const tasks = campaignJobTasks({
     analyticsMetrics,
+    campaign,
     isExecuting,
     isScheduling,
+    manualPublishedAssetIds,
     payment,
     publishingPostId,
+    specialistName: winnerAgent.name,
     visibleCount,
     xPosts
   });
   const completedCount = tasks.filter((task) => task.status === "completed").length;
-  const waitingCount = tasks.filter((task) => task.status === "waiting").length;
-  const jobStatus = tasks.every((task) => task.status === "completed")
-    ? "Completed"
-    : "Working";
+  const waitingCount = tasks.filter(
+    (task) => task.status === "waiting_approval"
+  ).length;
+  const recommendation = campaignNextRecommendation({
+    analyticsMetrics,
+    assets,
+    budget,
+    campaign,
+    repositoryAnalysis,
+    status,
+    websiteAnalysis,
+    xPosts
+  });
+  const budgetGuard = blockedBudgetAction(campaign, budget.remainingBudgetSol);
 
   return (
     <section className="mx-auto max-w-3xl pb-12">
       <SectionHeading
-        kicker="Campaign Job"
-        title={isExecuting ? "Employee is working." : "Campaign job is open."}
+        kicker="Campaign"
+        title="Campaign active"
       />
 
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-6 text-left soft-shadow sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b hairline pb-6">
           <div>
             <p className="text-3xl font-semibold tracking-[-0.04em] text-[#0a0a0a]">
-              Campaign Job
+              Campaign
             </p>
             <p className="mt-2 max-w-xl text-sm leading-6 text-[#52525b]">
-              Relix is managing the launch as an active job.
+              Relix keeps working until the goal is reached or the budget is
+              exhausted.
             </p>
           </div>
           <div className="rounded-full bg-[#0a0a0a] px-4 py-2 text-sm font-medium text-white">
-            Status: {jobStatus}
+            Status: {campaignStatusLabel(status)}
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3">
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CampaignMetric label="Goal" value={campaign.request.goal} />
+          <CampaignMetric label="Budget" value={formatSol(budget.budgetSol)} />
+          <CampaignMetric label="Spent" value={formatSol(budget.spentSol)} />
+          <CampaignMetric
+            label="Remaining"
+            value={formatSol(budget.remainingBudgetSol)}
+          />
+          <CampaignMetric
+            label="Current strategy"
+            value={currentStrategyFor(winnerAgent)}
+          />
+          <CampaignMetric label="Repo" value={campaign.jobContext.repository} />
+        </div>
+
+        <div className="mt-8 grid gap-3 border-t hairline pt-8">
           {tasks.map((task) => (
             <CampaignJobTaskRow key={task.id} task={task} />
           ))}
@@ -3184,18 +3513,60 @@ function EmployeeWorkSection({
         <div className="mt-8 grid gap-6 border-t hairline pt-8 lg:grid-cols-[1fr_1fr]">
           <div>
             <p className="text-lg font-medium tracking-[-0.02em] text-[#27272a]">
+              Results
+            </p>
+            <p className="mt-3 text-sm leading-7 text-[#52525b]">
+              {analyticsMetrics?.connected
+                ? "Waiting for campaign data."
+                : "Connect analytics to measure results."}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-lg font-medium tracking-[-0.02em] text-[#27272a]">
               Next recommendation
             </p>
             <p className="mt-3 text-sm leading-7 text-[#52525b]">
-              {work.nextRecommendation || assets.nextRecommendation}
+              {recommendation || work.nextRecommendation || assets.nextRecommendation}
             </p>
+            {budgetGuard ? (
+              <p className="mt-3 rounded-2xl bg-[#f4f4f5] px-4 py-3 text-xs leading-5 text-[#52525b]">
+                {budgetGuard}
+              </p>
+            ) : null}
             <p className="mt-4 text-xs leading-5 text-[#71717a]">
               {completedCount} completed · {waitingCount} waiting ·{" "}
               {tasks.length - completedCount - waitingCount} pending or working
             </p>
           </div>
+        </div>
 
-          {payment ? (
+        <div className="mt-8 flex flex-wrap gap-2 border-t hairline pt-8">
+          <button
+            className="rounded-full bg-[#f4f4f5] px-4 py-2.5 text-sm font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+            onClick={() => onCampaignStatusChange("paused")}
+            type="button"
+          >
+            Pause campaign
+          </button>
+          <button
+            className="rounded-full bg-[#f4f4f5] px-4 py-2.5 text-sm font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+            onClick={() => onCampaignStatusChange("completed")}
+            type="button"
+          >
+            Mark goal reached
+          </button>
+          <button
+            className="rounded-full bg-[#f4f4f5] px-4 py-2.5 text-sm font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
+            onClick={() => onCampaignStatusChange("completed")}
+            type="button"
+          >
+            End campaign
+          </button>
+        </div>
+
+        {payment ? (
+          <div className="mt-8 border-t hairline pt-8">
             <div className="rounded-3xl bg-[#f4f4f5] p-5">
               <p className="text-sm font-medium text-[#18181b]">
                 Specialist paid
@@ -3215,8 +3586,8 @@ function EmployeeWorkSection({
                 Explorer
               </a>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -3318,7 +3689,18 @@ function ScheduledXPostRow({
   );
 }
 
-function CampaignJobTaskRow({ task }: { task: CampaignJobTask }) {
+function CampaignMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-3xl bg-[#f4f4f5] p-4">
+      <p className="text-xs font-medium text-[#71717a]">{label}</p>
+      <p className="mt-1 break-words text-sm font-medium leading-6 text-[#27272a]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function CampaignJobTaskRow({ task }: { task: CampaignTask }) {
   const completed = task.status === "completed";
   const working = task.status === "working";
 
@@ -3338,6 +3720,7 @@ function CampaignJobTaskRow({ task }: { task: CampaignJobTask }) {
       <div>
         <p className="font-medium tracking-[-0.01em]">{task.title}</p>
         <p className="mt-2 text-sm leading-6 text-[#52525b]">{task.detail}</p>
+        <p className="mt-2 text-xs text-[#71717a]">Owner: {task.owner}</p>
       </div>
       <span
         className={`w-fit rounded-full px-3 py-1.5 text-xs font-medium sm:justify-self-end ${
@@ -3345,8 +3728,10 @@ function CampaignJobTaskRow({ task }: { task: CampaignJobTask }) {
             ? "bg-[#0a0a0a] text-white"
             : task.status === "working"
               ? "bg-white text-[#0a0a0a]"
-              : task.status === "waiting"
+              : task.status === "waiting_approval"
                 ? "bg-white text-[#52525b]"
+                : task.status === "failed"
+                  ? "bg-white text-[#b91c1c]"
                 : "bg-[#e4e4e7] text-[#71717a]"
         }`}
       >
@@ -3358,22 +3743,29 @@ function CampaignJobTaskRow({ task }: { task: CampaignJobTask }) {
 
 function campaignJobTasks({
   analyticsMetrics,
+  campaign,
   isExecuting,
   isScheduling,
+  manualPublishedAssetIds,
   payment,
   publishingPostId,
+  specialistName,
   visibleCount,
   xPosts
 }: {
   analyticsMetrics: GoogleAnalyticsMetrics | null;
+  campaign: CampaignPlan;
   isExecuting: boolean;
   isScheduling: boolean;
+  manualPublishedAssetIds: string[];
   payment: PaymentResult | null;
   publishingPostId: string | null;
+  specialistName: string;
   visibleCount: number;
   xPosts: ScheduledXPost[];
-}): CampaignJobTask[] {
-  const sequenced = (index: number): CampaignJobTaskStatus => {
+}): CampaignTask[] {
+  const createdAt = new Date().toISOString();
+  const sequenced = (index: number): CampaignTaskStatus => {
     if (visibleCount > index) {
       return "completed";
     }
@@ -3389,62 +3781,92 @@ function campaignJobTasks({
   ).length;
   const publishedCount = xPosts.filter(
     (post) => post.status === "published"
-  ).length;
+  ).length + manualPublishedAssetIds.length;
   const analyticsCanCollect = Boolean(analyticsMetrics?.connected);
 
   return [
     {
+      completedAt: sequenced(0) === "completed" ? createdAt : undefined,
+      createdAt,
       detail: "Repository context and recent commits were read before planning.",
       id: "read-repository",
+      owner: "Growth Employee",
       status: sequenced(0),
       title: "Read repository"
     },
     {
+      completedAt: sequenced(1) === "completed" ? createdAt : undefined,
+      createdAt,
       detail: "The employee identified what changed and why it matters.",
       id: "understand-product",
+      owner: "Growth Employee",
       status: sequenced(1),
       title: "Understand product"
     },
     {
+      completedAt: sequenced(2) === "completed" ? createdAt : undefined,
+      createdAt,
+      detail: `Marketplace bids were compared against ${campaign.request.goal.toLowerCase()}.`,
+      id: "find-launch-opportunity",
+      owner: "Growth Employee",
+      status: sequenced(2),
+      title: "Find launch opportunity"
+    },
+    {
+      completedAt: sequenced(3) === "completed" ? createdAt : undefined,
+      createdAt,
       detail: "Marketplace bids were compared against the goal, budget and deadline.",
       id: "select-specialist",
-      status: sequenced(2),
-      title: "Select specialist"
+      owner: "Growth Employee",
+      status: sequenced(3),
+      title: `Hire ${specialistName}`
     },
     {
+      completedAt: sequenced(4) === "completed" ? createdAt : undefined,
+      createdAt,
       detail: "The selected specialist prepared the launch thread and supporting copy.",
       id: "generate-launch-thread",
-      status: sequenced(3),
-      title: "Generate launch thread"
+      owner: specialistName,
+      status: sequenced(4),
+      title: "Prepare launch thread"
     },
     {
+      completedAt: payment ? createdAt : undefined,
+      createdAt,
       detail: payment
         ? "Founder approval received and payment released."
         : "Waiting for the founder to approve specialist payment.",
       id: "founder-approval",
-      status: payment ? sequenced(4) : "waiting",
+      owner: "Founder",
+      status: payment ? "completed" : "waiting_approval",
       title: "Founder approval"
     },
     {
+      completedAt: scheduledCount > 0 ? createdAt : undefined,
+      createdAt,
       detail:
         scheduledCount > 0
           ? `${scheduledCount} launch post${scheduledCount === 1 ? "" : "s"} scheduled.`
           : "Waiting for the founder to schedule the approved thread.",
       id: "schedule-x-thread",
+      owner: "Founder",
       status:
         scheduledCount > 0
           ? "completed"
           : isScheduling
             ? "working"
-            : "waiting",
+            : "waiting_approval",
       title: "Schedule X thread"
     },
     {
+      completedAt: publishedCount > 0 ? createdAt : undefined,
+      createdAt,
       detail:
         publishedCount > 0
           ? `${publishedCount} launch post${publishedCount === 1 ? "" : "s"} published.`
           : "Ready once the founder approves the launch moment.",
       id: "publish-launch",
+      owner: "Founder",
       status:
         publishedCount > 0
           ? "completed"
@@ -3454,24 +3876,36 @@ function campaignJobTasks({
       title: "Publish launch"
     },
     {
+      completedAt:
+        analyticsCanCollect && publishedCount > 0 ? createdAt : undefined,
+      createdAt,
       detail: analyticsCanCollect
         ? publishedCount > 0
           ? "Analytics are connected and ready to review launch performance."
           : "Analytics are connected and waiting for the launch to go live."
         : "Connect analytics after launch to measure traffic and conversion.",
       id: "collect-analytics",
+      owner: "Growth Employee",
       status:
         analyticsCanCollect && publishedCount > 0
           ? "completed"
           : publishedCount > 0
-            ? "waiting"
+            ? "waiting_approval"
             : "pending",
-      title: "Collect analytics"
+      title: "Collect analytics after 24h"
+    },
+    {
+      createdAt,
+      detail: "Relix will choose the next move after the first launch data arrives.",
+      id: "decide-next-action",
+      owner: "Growth Employee",
+      status: publishedCount > 0 ? "working" : "pending",
+      title: "Decide next action"
     }
   ];
 }
 
-function statusLabel(status: CampaignJobTaskStatus) {
+function statusLabel(status: CampaignTaskStatus) {
   if (status === "completed") {
     return "Completed";
   }
@@ -3480,11 +3914,342 @@ function statusLabel(status: CampaignJobTaskStatus) {
     return "Working";
   }
 
-  if (status === "waiting") {
-    return "Waiting";
+  if (status === "waiting_approval") {
+    return "Waiting approval";
+  }
+
+  if (status === "failed") {
+    return "Failed";
   }
 
   return "Pending";
+}
+
+function assetActionStatus({
+  copied,
+  manualPublished,
+  xPost
+}: {
+  copied: boolean;
+  manualPublished: boolean;
+  xPost?: ScheduledXPost;
+}) {
+  if (manualPublished || xPost?.status === "published") {
+    return "Published";
+  }
+
+  if (xPost?.status === "failed") {
+    return "Failed";
+  }
+
+  if (xPost?.status === "publishing") {
+    return "Publishing";
+  }
+
+  if (xPost?.status === "scheduled") {
+    return "Scheduled";
+  }
+
+  if (copied) {
+    return "Copied";
+  }
+
+  if (xPost?.status === "draft") {
+    return "Drafted";
+  }
+
+  return "Waiting approval";
+}
+
+function campaignBudget(campaign: CampaignPlan, payment: PaymentResult | null) {
+  const spentSol = payment?.settlementSol || 0;
+  const budgetSol = campaign.request.budgetSol;
+
+  return {
+    budgetSol,
+    remainingBudgetSol: Number(Math.max(0, budgetSol - spentSol).toFixed(3)),
+    spentSol
+  };
+}
+
+function campaignStatus({
+  campaign,
+  manualPublishedAssetIds,
+  override,
+  payment,
+  xPosts
+}: {
+  campaign: CampaignPlan;
+  manualPublishedAssetIds: string[];
+  override: CampaignStatus | null;
+  payment: PaymentResult | null;
+  xPosts: ScheduledXPost[];
+}): CampaignStatus {
+  if (override) {
+    return override;
+  }
+
+  const budget = campaignBudget(campaign, payment);
+
+  if (budget.remainingBudgetSol <= 0) {
+    return "budget_exhausted";
+  }
+
+  if (deadlinePassed(campaign.request.deadline)) {
+    return "completed";
+  }
+
+  const hasPublished = xPosts.some((post) => post.status === "published") ||
+    manualPublishedAssetIds.length > 0;
+
+  if (!payment || !hasPublished) {
+    return "waiting_approval";
+  }
+
+  return "active";
+}
+
+function campaignStatusLabel(status: CampaignStatus) {
+  if (status === "active") {
+    return "Working";
+  }
+
+  if (status === "waiting_approval") {
+    return "Waiting approval";
+  }
+
+  if (status === "budget_exhausted") {
+    return "Budget exhausted";
+  }
+
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function currentStrategyFor(agent: SpecialistAgent) {
+  const name = agent.name.toLowerCase();
+
+  if (name.includes("tournament")) {
+    return "Tournament launch";
+  }
+
+  if (name.includes("creator")) {
+    return "Creator outreach";
+  }
+
+  if (name.includes("referral")) {
+    return "Referral loop";
+  }
+
+  if (name.includes("community")) {
+    return "Community launch";
+  }
+
+  return agent.capabilities[0]?.replace(/[-_]+/g, " ") || "Launch campaign";
+}
+
+function campaignNextRecommendation({
+  analyticsMetrics,
+  assets,
+  budget,
+  campaign,
+  repositoryAnalysis,
+  status,
+  websiteAnalysis,
+  xPosts
+}: {
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
+  assets: GrowthCampaignAssets;
+  budget: ReturnType<typeof campaignBudget>;
+  campaign: CampaignPlan;
+  repositoryAnalysis: RepositoryAnalysis;
+  status: CampaignStatus;
+  websiteAnalysis: WebsiteAnalysis | null;
+  xPosts: ScheduledXPost[];
+}) {
+  const published = xPosts.some((post) => post.status === "published");
+  const scheduled = xPosts.some((post) => post.status === "scheduled");
+  const productRead =
+    repositoryAnalysis.keyProductImprovements[0] || assets.productArea;
+  const websiteRead = websiteAnalysis?.ok
+    ? ` The website points people to ${websiteAnalysis.primaryCta || "the main call to action"}.`
+    : "";
+
+  if (status === "budget_exhausted") {
+    return `Budget is exhausted. Pause new spend and review whether ${campaign.request.goal.toLowerCase()} was reached.`;
+  }
+
+  if (status === "paused") {
+    return "Campaign is paused. Resume only when the founder is ready to approve the next action.";
+  }
+
+  if (status === "completed") {
+    return "Goal is marked complete. Archive this campaign before starting a new one.";
+  }
+
+  if (!scheduled && !published) {
+    return `Your budget still has ${formatSol(
+      budget.remainingBudgetSol
+    )} remaining. Do not spend more until the launch thread is scheduled and has data.`;
+  }
+
+  if (!published) {
+    return `After the scheduled launch thread goes live, wait 24 hours before spending more budget. The current hook is ${productRead}.${websiteRead}`;
+  }
+
+  if (analyticsMetrics?.connected) {
+    return "Wait 24 hours, then compare traffic and signup conversion before hiring another specialist.";
+  }
+
+  return "After the launch thread is published, connect analytics before hiring another specialist.";
+}
+
+function blockedBudgetAction(
+  campaign: CampaignPlan,
+  remainingBudgetSol: number
+) {
+  const nextBid = campaign.bids
+    .filter((bid) => bid.id !== campaign.winningBid.id)
+    .sort((a, b) => b.priceSol - a.priceSol)[0];
+
+  if (!nextBid || nextBid.priceSol <= remainingBudgetSol) {
+    return null;
+  }
+
+  return `I cannot hire ${specialistDisplayName(nextBid)} because it costs ${formatSol(
+    nextBid.priceSol
+  )} and the remaining budget is ${formatSol(remainingBudgetSol)}.`;
+}
+
+function createActiveCampaignSnapshot({
+  analyticsMetrics,
+  campaign,
+  campaignAssets,
+  githubContext,
+  growthWork,
+  manualPublishedAssetIds,
+  payment,
+  repositoryAnalysis,
+  specialistDelivery,
+  statusOverride,
+  websiteAnalysis,
+  xPosts
+}: {
+  analyticsMetrics: GoogleAnalyticsMetrics | null;
+  campaign: CampaignPlan;
+  campaignAssets: GrowthCampaignAssets;
+  githubContext: GitHubRepositoryContext;
+  growthWork: GrowthEmployeeWork;
+  manualPublishedAssetIds: string[];
+  payment: PaymentResult;
+  repositoryAnalysis: RepositoryAnalysis;
+  specialistDelivery: SpecialistDelivery;
+  statusOverride: CampaignStatus | null;
+  websiteAnalysis: WebsiteAnalysis | null;
+  xPosts: ScheduledXPost[];
+}): ActiveCampaignSnapshot {
+  const now = new Date().toISOString();
+
+  return {
+    analyticsMetrics,
+    campaign,
+    campaignAssets,
+    createdAt: payment.signature ? now : now,
+    githubContext,
+    growthWork,
+    manualPublishedAssetIds,
+    payment,
+    repositoryAnalysis,
+    specialistDelivery,
+    status: campaignStatus({
+      campaign,
+      manualPublishedAssetIds,
+      override: statusOverride,
+      payment,
+      xPosts
+    }),
+    updatedAt: now,
+    websiteAnalysis,
+    xPosts
+  };
+}
+
+function campaignSnapshotSummary(snapshot: ActiveCampaignSnapshot) {
+  const completed = [
+    "Repository analysed",
+    `${specialistDisplayName(snapshot.campaign.winningBid)} hired`,
+    "Launch thread drafted",
+    "Payment settled"
+  ];
+
+  if (snapshot.xPosts.some((post) => post.status === "scheduled")) {
+    completed.push("Launch thread scheduled");
+  }
+
+  if (
+    snapshot.xPosts.some((post) => post.status === "published") ||
+    snapshot.manualPublishedAssetIds.length > 0
+  ) {
+    completed.push("Launch post published");
+  }
+
+  return {
+    completed,
+    nextRecommendation: campaignNextRecommendation({
+      analyticsMetrics: snapshot.analyticsMetrics,
+      assets: snapshot.campaignAssets,
+      budget: campaignBudget(snapshot.campaign, snapshot.payment),
+      campaign: snapshot.campaign,
+      repositoryAnalysis: snapshot.repositoryAnalysis,
+      status: snapshot.status,
+      websiteAnalysis: snapshot.websiteAnalysis,
+      xPosts: snapshot.xPosts
+    })
+  };
+}
+
+function readActiveCampaignSnapshot() {
+  try {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const raw = window.localStorage.getItem(ACTIVE_CAMPAIGN_STORAGE_KEY);
+
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as ActiveCampaignSnapshot;
+
+    return parsed?.campaign?.id && parsed?.payment?.signature ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveCampaignSnapshot(snapshot: ActiveCampaignSnapshot) {
+  try {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      ACTIVE_CAMPAIGN_STORAGE_KEY,
+      JSON.stringify(snapshot)
+    );
+  } catch {
+    // The campaign still works in memory if local storage is unavailable.
+  }
+}
+
+function deadlinePassed(value: string) {
+  const deadline = new Date(value);
+
+  if (Number.isNaN(deadline.getTime())) {
+    return false;
+  }
+
+  return deadline.getTime() < Date.now();
 }
 
 function SectionHeading({
