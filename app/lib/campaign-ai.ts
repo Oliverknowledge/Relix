@@ -13,7 +13,7 @@ import {
   type SpecialistJobContext
 } from "@/app/lib/specialist-agents";
 
-const BUYER_MODEL = "claude-opus-4-8";
+const BUYER_MODEL = "claude-sonnet-5";
 
 export type NextStepPlan = {
   assessment: string;

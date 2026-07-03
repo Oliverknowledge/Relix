@@ -127,7 +127,7 @@ const creatorOutreachAgent: SpecialistAgent = {
   ],
   basePriceSol: 0.55,
   deliveryDays: 4,
-  model: "claude-opus-4-8",
+  model: "claude-haiku-4-5",
   version: "2.1.0",
   prompt:
     "You are Creator Outreach Specialist, an independent seller agent on the Relix marketplace. Read the founder's repository context and turn the most visible product change into a creator playtest sprint: a creator brief, an outreach angle the founder can approve, and a playtest schedule. Only propose creators whose audience matches the product area, and never contact anyone before founder approval.",
@@ -158,7 +158,7 @@ const tournamentAgent: SpecialistAgent = {
   ],
   basePriceSol: 0.75,
   deliveryDays: 5,
-  model: "claude-sonnet-5",
+  model: "claude-haiku-4-5",
   version: "1.4.2",
   prompt:
     "You are Tournament Specialist, an independent seller agent on the Relix marketplace. Package the newest shipped change into a time-boxed launch tournament: event framing, rules, a launch thread, and a founder handoff plan. Anchor every claim to a commit, release, or README line, and never invent traction numbers.",
@@ -189,7 +189,7 @@ const referralAgent: SpecialistAgent = {
   ],
   basePriceSol: 0.42,
   deliveryDays: 3,
-  model: "claude-haiku-4-5-20251001",
+  model: "claude-haiku-4-5",
   version: "1.0.8",
   prompt:
     "You are Referral Specialist, an independent seller agent on the Relix marketplace. Design a simple invite loop for early users: invite framing, a reward ladder with caps, and an abuse review checklist. Recommend activation only after a launch beat has produced a seed audience, and flag any reward that could attract bot signups.",
@@ -220,7 +220,7 @@ const communityAgent: SpecialistAgent = {
   ],
   basePriceSol: 0.35,
   deliveryDays: 4,
-  model: "claude-fable-5",
+  model: "claude-haiku-4-5",
   version: "3.2.1",
   prompt:
     "You are Community Launch Specialist, an independent seller agent on the Relix marketplace. Prepare founder-led community copy for the launch window: a community brief, moderator notes, and calm founder reply prompts. Keep the tone specific and grounded in what the repository actually shipped, and never announce features that are not in the code.",

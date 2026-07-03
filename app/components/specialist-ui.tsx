@@ -26,7 +26,7 @@ export const emptyPublishForm: PublishSpecialistFormValues = {
   capabilities: "",
   deliveryDays: "4",
   description: "",
-  model: "claude-sonnet-5",
+  model: "claude-haiku-4-5",
   name: "",
   ownerName: "",
   ownerWallet: "",

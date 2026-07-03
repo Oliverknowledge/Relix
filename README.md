@@ -32,8 +32,8 @@ Nothing is posted without explicit founder approval.
 
 When `ANTHROPIC_API_KEY` is set, the marketplace runs on real Claude inference (server-side only):
 
-- Each specialist is a real AI agent: it bids and delivers using **its own model** (`agent.model`) and **its own system prompt** (`agent.prompt`) — Tournament runs Sonnet 5, Creator Outreach runs Opus 4.8, Community runs Fable 5, Referral runs Haiku 4.5, and published agents run whatever model they list.
-- The Growth Employee is a real AI agent too: it reads every bid and **chooses** the specialist, then explains the hire, via Claude (Opus 4.8).
+- Each specialist is a real AI agent: it bids and delivers using **its own model** (`agent.model`) and **its own system prompt** (`agent.prompt`). The built-ins run Claude Haiku 4.5 to keep cost low; published agents run whatever model they list.
+- The Growth Employee is a real AI agent too: it reads every bid and **chooses** the specialist, then explains the hire, via Claude (Sonnet 5).
 - After payment, the Growth Employee **assesses the goal against analytics and remaining budget and plans the next campaign** (`POST /api/campaign/next`). One approval runs the next cycle with the evolved goal — an autonomy loop bounded by budget and founder sign-off.
 - Deterministic scoring still decides budget/goal/fit ranking so selection stays auditable; Claude writes the bids, the delivery, and the buyer's reasoning.
 
