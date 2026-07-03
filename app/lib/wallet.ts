@@ -2,12 +2,14 @@ import { PublicKey } from "@solana/web3.js";
 
 // Settlement is devnet-only. The endpoint in app/providers.tsx is hardcoded to
 // clusterApiUrl("devnet") and the explorer link below pins ?cluster=devnet.
-export const DEMO_SETTLEMENT_SOL = 0.02;
 export const LOW_BALANCE_SOL = 0.05;
 export const FAUCET_URL = "https://faucet.solana.com/";
 
+// The founder pays the specialist's actual winning bid price. Bid prices are
+// kept in a devnet-payable range (see priceFromBudget in specialist-agents.ts),
+// so this is the real contract amount — not a fixed demo figure.
 export function settlementAmountFor(contractAmountSol: number) {
-  return Number(Math.min(contractAmountSol, DEMO_SETTLEMENT_SOL).toFixed(3));
+  return Number(contractAmountSol.toFixed(3));
 }
 
 export function explorerUrl(signature: string) {

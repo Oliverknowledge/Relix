@@ -24,6 +24,7 @@ import {
   defaultFounderRequest,
   type Bid,
   type CampaignPlan,
+  type CampaignSignals,
   type FounderRequest,
   type PaymentResult,
   formatSol
@@ -84,6 +85,14 @@ const scrollToElement = (element: HTMLElement | null, behavior: ScrollBehavior) 
 };
 
 type ReleaseStatus = "idle" | "signing" | "confirming" | "confirmed";
+
+type NextStepPlan = {
+  assessment: string;
+  goalMet: boolean;
+  nextGoal: string;
+  recommendation: string;
+  shouldContinue: boolean;
+};
 
 type WorkLogEntry = {
   createdAt: string;
@@ -247,6 +256,8 @@ export default function Home() {
   const [specialistDelivery, setSpecialistDelivery] =
     useState<SpecialistDelivery | null>(null);
   const [growthWork, setGrowthWork] = useState<GrowthEmployeeWork | null>(null);
+  const [nextPlan, setNextPlan] = useState<NextStepPlan | null>(null);
+  const [isPlanningNext, setIsPlanningNext] = useState(false);
   const [xStatus, setXStatus] = useState<XConnectionStatus>(emptyXStatus);
   const [workLog, setWorkLog] = useState<WorkLogEntry[]>([]);
   const [activeStage, setActiveStage] = useState<FlowStage>("setup");
@@ -680,6 +691,7 @@ export default function Home() {
       }
 
       setIsExecutingWork(false);
+      void planNextMove(nextPayment);
     } catch (error) {
       setReleaseStatus("idle");
       setReleaseError(
@@ -688,10 +700,55 @@ export default function Home() {
     }
   };
 
-  const hireEmployee = async () => {
+  const planNextMove = async (paymentResult: PaymentResult) => {
+    if (!campaign) {
+      return;
+    }
+
+    setIsPlanningNext(true);
+
+    try {
+      const response = await fetch("/api/campaign/next", {
+        body: JSON.stringify({
+          analyticsSummary:
+            analyticsMetrics?.summary || "Analytics not connected.",
+          budgetRemainingSol:
+            campaign.request.budgetSol - paymentResult.settlementSol,
+          completedSpecialist: specialistDisplayName(campaign.winningBid),
+          goal: campaign.request.goal,
+          productName: campaign.jobContext.productName,
+          repository: campaign.jobContext.repository
+        }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      });
+      const data = (await response.json()) as { plan?: NextStepPlan };
+
+      if (data.plan) {
+        setNextPlan(data.plan);
+      }
+    } catch {
+      // The completion summary still shows the static recommendation.
+    } finally {
+      setIsPlanningNext(false);
+    }
+  };
+
+  const runNextCampaign = () => {
+    if (!nextPlan) {
+      return;
+    }
+
+    setNextPlan(null);
+    void hireEmployee(nextPlan.nextGoal);
+  };
+
+  const hireEmployee = async (goalOverride?: string) => {
     if (isRunning) {
       return;
     }
+
+    const runGoal = goalOverride?.trim() || form.goal;
 
     if (!githubStatus.connected) {
       setIntegrationError(
@@ -707,6 +764,7 @@ export default function Home() {
     setReleaseStatus("idle");
     setExecutedActionCount(0);
     setIsExecutingWork(false);
+    setNextPlan(null);
     setWorkLog([]);
     setHasRun(false);
     setIntegrationError(null);
@@ -807,13 +865,14 @@ export default function Home() {
 
       const nextRequest: FounderRequest = {
         ...form,
+        goal: runGoal,
         description:
           context.description ||
           context.readme.slice(0, 240) ||
           defaultFounderRequest.description,
         gameName: humanizeName(context.name)
       };
-      const nextCampaign = await createCampaignPlan(nextRequest, {
+      const nextCampaign = await planCampaign(nextRequest, {
         analytics: nextAnalytics,
         github: context,
         reputation,
@@ -824,12 +883,10 @@ export default function Home() {
         github: context,
         website: nextWebsite
       });
-      const nextDelivery = await getSpecialistAdapter(
-        nextCampaign.winningBid.specialistId
-      ).deliver({
-        bid: nextCampaign.winningBid,
-        request: nextCampaign.jobContext
-      });
+      const nextDelivery = await deliverCampaign(
+        nextCampaign.winningBid.specialistId,
+        nextCampaign.jobContext
+      );
       const nextAnalysis = analyzeRepository(context);
       const previousCampaigns = await loadCampaignMemory(context.fullName);
       const nextWork = createGrowthEmployeeWork({
@@ -1513,11 +1570,13 @@ export default function Home() {
           editingAssetId={editingAssetId}
           error={releaseError}
           isExecutingWork={isExecutingWork}
+          isPlanningNext={isPlanningNext}
           isRatingDelivery={isRatingDelivery}
           isSavingDrafts={isSavingDrafts}
           isScheduling={isScheduling}
           manualPublishedAssetIds={manualPublishedAssetIds}
           memory={campaignMemory}
+          nextPlan={nextPlan}
           onCancelPost={cancelScheduledXPost}
           onCampaignStatusChange={setCampaignStatusOverride}
           onCopyAsset={copyAsset}
@@ -1527,6 +1586,7 @@ export default function Home() {
           onPublishNow={publishXPostNow}
           onRate={rateDelivery}
           onRelease={releasePayment}
+          onRunNext={runNextCampaign}
           onRetryPost={(postId) => publishXPostNow({ postId })}
           onSaveDrafts={saveXPostDrafts}
           onScheduleAll={scheduleXLaunchPosts}
@@ -1854,11 +1914,13 @@ function GuidedResultFlow({
   editingAssetId,
   error,
   isExecutingWork,
+  isPlanningNext,
   isRatingDelivery,
   isSavingDrafts,
   isScheduling,
   manualPublishedAssetIds,
   memory,
+  nextPlan,
   onCancelPost,
   onCampaignStatusChange,
   onCopyAsset,
@@ -1868,6 +1930,7 @@ function GuidedResultFlow({
   onPublishNow,
   onRate,
   onRelease,
+  onRunNext,
   onRetryPost,
   onSaveDrafts,
   onScheduleAll,
@@ -1904,11 +1967,13 @@ function GuidedResultFlow({
   editingAssetId: string | null;
   error: string | null;
   isExecutingWork: boolean;
+  isPlanningNext: boolean;
   isRatingDelivery: boolean;
   isSavingDrafts: boolean;
   isScheduling: boolean;
   manualPublishedAssetIds: string[];
   memory: CampaignMemoryRecord[];
+  nextPlan: NextStepPlan | null;
   onCancelPost: (postId: string) => Promise<void>;
   onCampaignStatusChange: (status: CampaignStatus) => void;
   onCopyAsset: (id: string, text: string) => Promise<void>;
@@ -1923,6 +1988,7 @@ function GuidedResultFlow({
   onOpenProfile: (id: SpecialistId) => void;
   onRate: (rating: number) => Promise<void>;
   onRelease: () => Promise<void>;
+  onRunNext: () => void;
   onRetryPost: (postId: string) => Promise<void>;
   onSaveDrafts: () => Promise<void>;
   onScheduleAll: () => Promise<void>;
@@ -2076,9 +2142,12 @@ function GuidedResultFlow({
             campaign={campaign}
             campaignStatusOverride={campaignStatusOverride}
             isExecuting={isExecutingWork}
+            isPlanningNext={isPlanningNext}
             isScheduling={isScheduling}
             manualPublishedAssetIds={manualPublishedAssetIds}
+            nextPlan={nextPlan}
             onCampaignStatusChange={onCampaignStatusChange}
+            onRunNext={onRunNext}
             payment={payment}
             publishingPostId={publishingPostId}
             repositoryAnalysis={repositoryAnalysis}
@@ -3444,9 +3513,12 @@ function EmployeeWorkSection({
   campaign,
   campaignStatusOverride,
   isExecuting,
+  isPlanningNext,
   isScheduling,
   manualPublishedAssetIds,
+  nextPlan,
   onCampaignStatusChange,
+  onRunNext,
   payment,
   publishingPostId,
   repositoryAnalysis,
@@ -3460,9 +3532,12 @@ function EmployeeWorkSection({
   campaign: CampaignPlan;
   campaignStatusOverride: CampaignStatus | null;
   isExecuting: boolean;
+  isPlanningNext: boolean;
   isScheduling: boolean;
   manualPublishedAssetIds: string[];
+  nextPlan: NextStepPlan | null;
   onCampaignStatusChange: (status: CampaignStatus) => void;
+  onRunNext: () => void;
   payment: PaymentResult | null;
   publishingPostId: string | null;
   repositoryAnalysis: RepositoryAnalysis;
@@ -3582,6 +3657,61 @@ function EmployeeWorkSection({
             </p>
           </div>
         </div>
+
+        {payment ? (
+          <div className="mt-8 border-t hairline pt-8">
+            <p className="text-sm font-medium text-[#71717a]">
+              Employee&apos;s next move
+            </p>
+            {isPlanningNext ? (
+              <p className="mt-3 flex items-center gap-2 text-sm text-[#52525b]">
+                Planning the next campaign
+                <span className="typing-dot" aria-hidden="true" />
+              </p>
+            ) : nextPlan ? (
+              <div className="mt-3 grid gap-4">
+                <p className="text-base leading-7 text-[#27272a]">
+                  {nextPlan.assessment}
+                </p>
+                <div className="rounded-2xl bg-[#f4f4f5] px-4 py-3">
+                  <p className="text-xs font-medium text-[#71717a]">
+                    Recommendation
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-[#27272a]">
+                    {nextPlan.recommendation}
+                  </p>
+                </div>
+                {nextPlan.goalMet ? (
+                  <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm font-medium text-[#27272a]">
+                    ✓ The employee believes the goal is reached.
+                  </p>
+                ) : nextPlan.shouldContinue ? (
+                  <div>
+                    <button
+                      className="rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a]"
+                      onClick={onRunNext}
+                      type="button"
+                    >
+                      Run the next campaign
+                    </button>
+                    <p className="mt-2 text-xs leading-5 text-[#71717a]">
+                      Next goal: {nextPlan.nextGoal}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
+                    The employee is holding here until there is more budget or a
+                    new product change to launch.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-[#52525b]">
+                {recommendation || work.nextRecommendation}
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div className="mt-8 flex flex-wrap gap-2 border-t hairline pt-8">
           <button
@@ -4434,6 +4564,78 @@ async function fetchJson<T>(path: string): Promise<T> {
   }
 
   return data as T;
+}
+
+// Plan the campaign on the server so each seller agent bids with its own Claude
+// model and the buyer agent chooses. Falls back to the deterministic local
+// engine if the route fails (e.g. no ANTHROPIC_API_KEY).
+async function planCampaign(
+  request: FounderRequest,
+  signals: CampaignSignals
+): Promise<CampaignPlan> {
+  try {
+    const response = await fetch("/api/campaign/plan", {
+      body: JSON.stringify({
+        analytics: signals.analytics,
+        github: signals.github,
+        reputation: signals.reputation,
+        request,
+        website: signals.website
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    const data = (await response.json()) as {
+      error?: string;
+      plan?: CampaignPlan;
+    };
+
+    if (!response.ok || !data.plan) {
+      throw new Error(data.error || "Plan request failed.");
+    }
+
+    return data.plan;
+  } catch {
+    return createCampaignPlan(request, signals);
+  }
+}
+
+async function deliverCampaign(
+  specialistId: string,
+  jobContext: CampaignPlan["jobContext"]
+): Promise<SpecialistDelivery> {
+  try {
+    const response = await fetch("/api/campaign/deliver", {
+      body: JSON.stringify({ jobContext, specialistId }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    const data = (await response.json()) as {
+      delivery?: SpecialistDelivery;
+      error?: string;
+    };
+
+    if (!response.ok || !data.delivery) {
+      throw new Error(data.error || "Delivery request failed.");
+    }
+
+    return data.delivery;
+  } catch {
+    return getSpecialistAdapter(specialistId).deliver({
+      bid: {
+        createdAt: new Date().toISOString(),
+        deliverables: [],
+        deliveryDays: 0,
+        id: `bid-${jobContext.jobId}-${specialistId}`,
+        jobId: jobContext.jobId,
+        priceSol: 0,
+        reasoning: "",
+        risk: "",
+        specialistId
+      },
+      request: jobContext
+    });
+  }
 }
 
 function shortAddress(address: string) {

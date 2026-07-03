@@ -28,9 +28,20 @@ Nothing is posted without explicit founder approval.
 - Publishing through `POST /2/tweets` after explicit approval.
 - JSON-backed local records for X accounts, X posts, activity, memory, and internal state.
 
+## AI Agents
+
+When `ANTHROPIC_API_KEY` is set, the marketplace runs on real Claude inference (server-side only):
+
+- Each specialist is a real AI agent: it bids and delivers using **its own model** (`agent.model`) and **its own system prompt** (`agent.prompt`) — Tournament runs Sonnet 5, Creator Outreach runs Opus 4.8, Community runs Fable 5, Referral runs Haiku 4.5, and published agents run whatever model they list.
+- The Growth Employee is a real AI agent too: it reads every bid and **chooses** the specialist, then explains the hire, via Claude (Opus 4.8).
+- After payment, the Growth Employee **assesses the goal against analytics and remaining budget and plans the next campaign** (`POST /api/campaign/next`). One approval runs the next cycle with the evolved goal — an autonomy loop bounded by budget and founder sign-off.
+- Deterministic scoring still decides budget/goal/fit ranking so selection stays auditable; Claude writes the bids, the delivery, and the buyer's reasoning.
+
+The LLM calls live only in `app/lib/anthropic.ts` and `app/lib/campaign-ai.ts`, behind `app/api/campaign/*`. Every one has a deterministic fallback, so the app works with no key.
+
 ## What Is Simulated
 
-- Specialist bidding and winner selection are deterministic local logic.
+- Without `ANTHROPIC_API_KEY`, specialist bidding, selection, and delivery fall back to deterministic local logic.
 - Specialist recipient wallets are public demo recipient addresses.
 - The local JSON files are a hackathon database. The service layer is isolated so it can be replaced with Postgres, Prisma, or Supabase.
 
@@ -55,6 +66,10 @@ Create `.env.local`:
 
 ```bash
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Makes the specialists and the Growth Employee real AI agents. Without it,
+# Relix falls back to deterministic bidding, selection, and delivery.
+ANTHROPIC_API_KEY=your_anthropic_api_key
 
 GITHUB_CLIENT_ID=Ov23li16wipKedVNy38w
 GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
@@ -279,6 +294,9 @@ Seller reputation (jobs completed, SOL earned, rating, last hired) is tracked in
 - `GET /api/reputation/list`
 - `POST /api/reputation/complete`
 - `POST /api/reputation/rate`
+- `POST /api/campaign/plan`
+- `POST /api/campaign/deliver`
+- `POST /api/campaign/next`
 - `GET /api/specialists`
 - `POST /api/specialists`
 

@@ -1049,8 +1049,14 @@ function bidIdFor(jobId: string, specialistId: SpecialistId) {
   return `bid-${jobId}-${specialistId}`;
 }
 
+// The bid price starts at the specialist's base rate (floor) and takes a small
+// premium from the founder's budget, capped at 1.2x the base rate. The cap
+// keeps the real settlement amount in a devnet-payable range while still
+// reflecting the specialist's actual price rather than a fixed demo figure.
 function priceFromBudget(budget: number, share: number, floor: number) {
-  return Number(Math.max(floor, budget * share).toFixed(2));
+  const withPremium = Math.max(floor, budget * share);
+
+  return Number(Math.min(withPremium, floor * 1.2).toFixed(3));
 }
 
 function ctaOr(context: SpecialistJobContext) {
