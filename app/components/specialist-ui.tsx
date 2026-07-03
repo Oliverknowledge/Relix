@@ -125,7 +125,7 @@ export function PublishSpecialistForm({
     setValues((current) => ({ ...current, [field]: value }));
 
   return (
-    <div className="mt-12 max-w-2xl">
+    <div className="mt-12 max-w-5xl">
       <form
         className="grid gap-4"
         onSubmit={(event) => {

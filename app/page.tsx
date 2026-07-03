@@ -1468,7 +1468,7 @@ export default function Home() {
       <div ref={flowRef} />
 
       {activeStage === "working" ? (
-        <section className="mx-auto max-w-5xl px-5 pb-24 sm:px-8">
+        <section className="mx-auto max-w-7xl px-5 pb-24 sm:px-8">
           <WorkLog entries={workLog} />
         </section>
       ) : null}
@@ -1594,7 +1594,7 @@ function SetupSection({
   xStatus: XConnectionStatus;
 }) {
   return (
-    <section className="mx-auto flex min-h-screen max-w-5xl flex-col justify-center px-5 py-16 sm:px-8">
+    <section className="mx-auto flex min-h-screen max-w-7xl flex-col justify-center px-5 py-16 sm:px-8">
       {activeCampaignSnapshot ? (
         <MorningUpdate
           onResume={onResumeCampaign}
@@ -1602,143 +1602,148 @@ function SetupSection({
         />
       ) : null}
 
-      <div className="max-w-3xl">
-        <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
-          Hire your first AI Growth Employee.
-        </h1>
-        <p className="mt-7 max-w-2xl text-lg leading-8 text-[#52525b] sm:text-xl">
-          Connect your product. Set a goal. Relix hires specialist agents,
-          manages your growth budget, executes approved campaign actions,
-          measures results, and keeps working until the goal is reached or the
-          budget is exhausted.
-        </p>
-      </div>
-
-      <form
-        className="mt-12 grid max-w-2xl gap-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <GitHubConnection
-          githubStatus={githubStatus}
-          loading={loading}
-          repositories={repositories}
-          reposLoading={reposLoading}
-          refresh={refreshToolStatuses}
-          refreshRepositories={refreshRepositories}
-          selectedRepo={selectedRepo}
-          setSelectedRepo={setSelectedRepo}
-        />
-
-        <label className="grid gap-2">
-          <span className="text-sm font-medium text-[#18181b]">
-            Website URL
-          </span>
-          <input
-            className="field h-14 px-4 text-base"
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                websiteUrl: event.target.value
-              }))
-            }
-            placeholder="https://getsnowball.app"
-            type="url"
-            value={form.websiteUrl}
-          />
-        </label>
-
-        <GoogleAnalyticsConnection
-          googleStatus={googleStatus}
-          loading={loading}
-          refresh={refreshToolStatuses}
-          selectedProperty={selectedAnalyticsProperty}
-          setSelectedProperty={setSelectedAnalyticsProperty}
-        />
-
-        <div className="grid gap-2">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium text-[#18181b]">X</p>
-            <span className="text-xs text-[#71717a]">Optional</span>
-          </div>
-          <XConnection
-            disconnect={xDisconnect}
-            loading={loading}
-            refresh={refreshToolStatuses}
-            xStatus={xStatus}
-          />
+      <div className="grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(440px,0.82fr)] xl:gap-20">
+        <div className="max-w-4xl">
+          <h1 className="text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-[#0a0a0a] sm:text-7xl md:text-8xl">
+            Hire your first AI Growth Employee.
+          </h1>
+          <p className="mt-7 max-w-3xl text-lg leading-8 text-[#52525b] sm:text-xl">
+            Connect your product. Set a goal. Relix hires specialist agents,
+            manages your growth budget, executes approved campaign actions,
+            measures results, and keeps working until the goal is reached or the
+            budget is exhausted.
+          </p>
         </div>
 
-        <label className="grid gap-2">
-          <span className="text-sm font-medium text-[#18181b]">Goal</span>
-          <input
-            className="field h-14 px-4 text-base"
-            value={form.goal}
-            onChange={(event) =>
-              setForm((current) => ({
-                ...current,
-                goal: event.target.value
-              }))
-            }
+        <form
+          className="grid gap-5 lg:pt-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <GitHubConnection
+            githubStatus={githubStatus}
+            loading={loading}
+            repositories={repositories}
+            reposLoading={reposLoading}
+            refresh={refreshToolStatuses}
+            refreshRepositories={refreshRepositories}
+            selectedRepo={selectedRepo}
+            setSelectedRepo={setSelectedRepo}
           />
-        </label>
-
-        <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
-          <label className="grid gap-2">
-            <span className="text-sm font-medium text-[#18181b]">Budget</span>
-            <div className="relative">
-              <input
-                className="field h-14 px-4 pr-14 text-base"
-                min={0}
-                step={0.1}
-                type="number"
-                value={form.budgetSol}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    budgetSol: Number(event.target.value)
-                  }))
-                }
-              />
-              <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#71717a]">
-                SOL
-              </span>
-            </div>
-          </label>
 
           <label className="grid gap-2">
-            <span className="text-sm font-medium text-[#18181b]">Deadline</span>
+            <span className="text-sm font-medium text-[#18181b]">
+              Website URL
+            </span>
             <input
               className="field h-14 px-4 text-base"
-              type="date"
-              value={form.deadline}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
-                  deadline: event.target.value
+                  websiteUrl: event.target.value
+                }))
+              }
+              placeholder="https://getsnowball.app"
+              type="url"
+              value={form.websiteUrl}
+            />
+          </label>
+
+          <GoogleAnalyticsConnection
+            googleStatus={googleStatus}
+            loading={loading}
+            refresh={refreshToolStatuses}
+            selectedProperty={selectedAnalyticsProperty}
+            setSelectedProperty={setSelectedAnalyticsProperty}
+          />
+
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-[#18181b]">X</p>
+              <span className="text-xs text-[#71717a]">Optional</span>
+            </div>
+            <XConnection
+              disconnect={xDisconnect}
+              loading={loading}
+              refresh={refreshToolStatuses}
+              xStatus={xStatus}
+            />
+          </div>
+
+          <label className="grid gap-2">
+            <span className="text-sm font-medium text-[#18181b]">Goal</span>
+            <input
+              className="field h-14 px-4 text-base"
+              value={form.goal}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  goal: event.target.value
                 }))
               }
             />
           </label>
-        </div>
 
-        <button
-          className="mt-2 h-14 w-full rounded-full bg-[#0a0a0a] px-6 text-base font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
-          disabled={isRunning}
-          type="submit"
-        >
-          {isRunning ? "Hiring..." : "Hire Growth Employee"}
-        </button>
+          <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-[#18181b]">
+                Budget
+              </span>
+              <div className="relative">
+                <input
+                  className="field h-14 px-4 pr-14 text-base"
+                  min={0}
+                  step={0.1}
+                  type="number"
+                  value={form.budgetSol}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      budgetSol: Number(event.target.value)
+                    }))
+                  }
+                />
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-[#71717a]">
+                  SOL
+                </span>
+              </div>
+            </label>
 
-        {integrationError ? (
-          <p className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#52525b] shadow-sm">
-            {integrationError}
-          </p>
-        ) : null}
-      </form>
+            <label className="grid gap-2">
+              <span className="text-sm font-medium text-[#18181b]">
+                Deadline
+              </span>
+              <input
+                className="field h-14 px-4 text-base"
+                type="date"
+                value={form.deadline}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    deadline: event.target.value
+                  }))
+                }
+              />
+            </label>
+          </div>
 
+          <button
+            className="mt-2 h-14 w-full rounded-full bg-[#0a0a0a] px-6 text-base font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50 sm:w-fit"
+            disabled={isRunning}
+            type="submit"
+          >
+            {isRunning ? "Hiring..." : "Hire Growth Employee"}
+          </button>
+
+          {integrationError ? (
+            <p className="rounded-2xl bg-white px-4 py-3 text-sm leading-6 text-[#52525b] shadow-sm">
+              {integrationError}
+            </p>
+          ) : null}
+        </form>
+      </div>
     </section>
   );
 }
@@ -1753,7 +1758,7 @@ function MorningUpdate({
   const summary = campaignSnapshotSummary(snapshot);
 
   return (
-    <div className="mb-12 max-w-2xl rounded-[2rem] border hairline bg-white p-6 soft-shadow">
+    <div className="mb-12 max-w-4xl rounded-[2rem] border hairline bg-white p-6 soft-shadow">
       <p className="text-sm font-medium text-[#71717a]">Good morning.</p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <div>
@@ -1911,7 +1916,7 @@ function GuidedResultFlow({
   const position = flowStagePosition(activeStage);
 
   return (
-    <section className="mx-auto max-w-5xl px-5 py-16 sm:px-8" ref={resultsRef}>
+    <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8" ref={resultsRef}>
       <div className="mb-10 grid gap-3">
         <CollapsedStep
           detail={`${campaign.request.goal} · ${formatSol(
@@ -2118,7 +2123,7 @@ function LaunchOpportunitySection({
     analyticsMetrics?.summary || "Analytics not connected";
 
   return (
-    <section className="mx-auto flex min-h-[70vh] max-w-3xl flex-col justify-center">
+    <section className="mx-auto flex min-h-[70vh] max-w-5xl flex-col justify-center">
       <div className="rounded-[2rem] border hairline bg-white p-7 soft-shadow sm:p-10">
         <p className="text-sm font-medium text-[#71717a]">Launch opportunity</p>
         <h2 className="mt-4 text-4xl font-semibold leading-tight tracking-[-0.04em] sm:text-6xl">
@@ -2132,7 +2137,7 @@ function LaunchOpportunitySection({
           {assets.opportunity}
         </p>
 
-        <div className="mt-8 grid gap-3">
+        <div className="mt-8 grid gap-3 lg:grid-cols-2">
           <SignalRow label="Website" value={websitePromise} />
           <SignalRow label="Comparison" value={assets.websiteComparison.summary} />
           <SignalRow label="Analytics" value={analyticsLine} />
@@ -2206,12 +2211,12 @@ function SpecialistSelectionSection({
   );
 
   return (
-    <section className="mx-auto max-w-3xl">
+    <section className="mx-auto max-w-6xl">
       <SectionHeading
         kicker="Marketplace responses"
         title={`${campaign.bids.length} seller agents responded.`}
       />
-      <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
+      <p className="mt-4 max-w-3xl text-sm leading-6 text-[#71717a]">
         Relix sent one job request to registered seller agents. Each seller
         returned terms, a wallet, and a short pitch for the work.
       </p>
@@ -2284,7 +2289,7 @@ function SpecialistSelectionSection({
                       </span>
                     </button>
                     <p
-                      className={`mt-2 max-w-xl text-sm leading-6 ${
+                      className={`mt-2 max-w-3xl text-sm leading-6 ${
                         selected ? "text-[#d4d4d8]" : "text-[#52525b]"
                       }`}
                     >
@@ -2696,7 +2701,7 @@ function ConnectionButton({
 function WorkLog({ entries }: { entries: WorkLogEntry[] }) {
   return (
     <section className="min-h-[70vh] py-20">
-      <div className="mx-auto max-w-2xl">
+      <div className="mx-auto max-w-4xl">
         <div className="space-y-4">
           {entries.map((entry, index) => {
             const isDone = entry.status === "done";
@@ -2807,7 +2812,7 @@ function SpecialistDeliverySection({
     : "Connect X to schedule or publish.";
 
   return (
-    <section className="mx-auto max-w-4xl">
+    <section className="mx-auto max-w-6xl">
       <SectionHeading
         kicker="Specialist delivery"
         title={`${specialistDisplayName(
@@ -2817,10 +2822,10 @@ function SpecialistDeliverySection({
 
       <div className="mt-8 grid gap-8">
         <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
-          <p className="max-w-2xl text-lg leading-8 text-[#27272a]">
+          <p className="max-w-4xl text-lg leading-8 text-[#27272a]">
             {delivery.report}
           </p>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-[#71717a]">
+          <p className="mt-4 max-w-4xl text-sm leading-6 text-[#71717a]">
             Source: {assets.repository}. {assets.sourceSummary}
           </p>
         </div>
@@ -3257,7 +3262,7 @@ function EscrowSection({
   ];
 
   return (
-    <section className="mx-auto max-w-xl">
+    <section className="mx-auto max-w-3xl">
       <SectionHeading kicker="Payment" title="Approve Employee Payment" />
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
         <p className="mb-7 text-base leading-7 text-[#52525b]">
@@ -3467,7 +3472,7 @@ function EmployeeWorkSection({
   const budgetGuard = blockedBudgetAction(campaign, budget.remainingBudgetSol);
 
   return (
-    <section className="mx-auto max-w-3xl pb-12">
+    <section className="mx-auto max-w-6xl pb-12">
       <SectionHeading
         kicker="Campaign"
         title="Campaign active"
@@ -3479,7 +3484,7 @@ function EmployeeWorkSection({
             <p className="text-3xl font-semibold tracking-[-0.04em] text-[#0a0a0a]">
               Campaign
             </p>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-[#52525b]">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[#52525b]">
               Relix keeps working until the goal is reached or the budget is
               exhausted.
             </p>
