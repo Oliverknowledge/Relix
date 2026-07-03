@@ -1,5 +1,6 @@
 import { promises as fs } from "fs";
 import { dataDirectory, dataPath } from "@/app/lib/data-path";
+import { isSpecialistCapabilityId } from "@/app/lib/specialist-capabilities";
 import {
   avatarInitials,
   BUILT_IN_SPECIALIST_IDS,
@@ -75,9 +76,13 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
   const model = requireText(input.model, "Model");
   const version = requireText(input.version, "Version");
   const prompt = requireText(input.prompt, "Prompt");
-  const capabilities = Array.isArray(input.capabilities)
-    ? input.capabilities.map((item) => item.trim()).filter(Boolean)
-    : [];
+  const capabilities = [
+    ...new Set(
+      Array.isArray(input.capabilities)
+        ? input.capabilities.map((item) => item.trim()).filter(Boolean)
+        : []
+    )
+  ];
   const basePriceSol = Number(input.basePriceSol);
   const deliveryDays = Number(input.deliveryDays);
 
@@ -89,6 +94,14 @@ function validateInput(input: PublishSpecialistInput): PublishSpecialistInput {
 
   if (capabilities.length === 0) {
     throw new Error("Add at least one capability.");
+  }
+
+  const unsupportedCapabilities = capabilities.filter(
+    (capability) => !isSpecialistCapabilityId(capability)
+  );
+
+  if (unsupportedCapabilities.length > 0) {
+    throw new Error("Choose capabilities from the preset list.");
   }
 
   if (!isCheapClaudeModel(model)) {

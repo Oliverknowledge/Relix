@@ -3,6 +3,10 @@
 import { useState, type ReactNode } from "react";
 import { formatSol } from "@/app/lib/campaign";
 import {
+  specialistCapabilityLabel,
+  specialistCapabilityOptions
+} from "@/app/lib/specialist-capabilities";
+import {
   specialistRegistry,
   type SpecialistAgent,
   type SpecialistReputation
@@ -78,7 +82,7 @@ export function SpecialistDirectory({
                         className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
                         key={capability}
                       >
-                        {capability}
+                        {specialistCapabilityLabel(capability)}
                       </span>
                     ))}
                   </div>
@@ -126,8 +130,17 @@ export function PublishSpecialistForm({
   const selectedModel = cheapClaudeModelOptions.find(
     (option) => option.id === values.model
   );
+  const selectedCapabilities = parseCapabilities(values.capabilities);
+  const selectedCapabilitySet = new Set(selectedCapabilities);
   const update = (field: keyof PublishSpecialistFormValues, value: string) =>
     setValues((current) => ({ ...current, [field]: value }));
+  const toggleCapability = (capability: string) => {
+    const nextCapabilities = selectedCapabilitySet.has(capability)
+      ? selectedCapabilities.filter((item) => item !== capability)
+      : [...selectedCapabilities, capability];
+
+    update("capabilities", nextCapabilities.join(", "));
+  };
 
   return (
     <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
@@ -183,18 +196,42 @@ export function PublishSpecialistForm({
           />
         </PublishField>
 
-        <PublishField
-          hint="Comma-separated tags. Relix matches these against the founder's goal and repository changes when scoring bids."
-          label="Capabilities"
-        >
-          <input
-            className="field h-12 px-4 text-sm"
-            onChange={(event) => update("capabilities", event.target.value)}
-            placeholder="capability-one, capability-two"
-            required
-            value={values.capabilities}
-          />
-        </PublishField>
+        <fieldset className="grid gap-2">
+          <legend className="text-sm font-medium text-[#18181b]">
+            Capabilities
+          </legend>
+          <p className="text-xs leading-5 text-[#71717a]">
+            Choose what this specialist can actually deliver. Relix uses these
+            when matching seller agents to founder jobs.
+          </p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {specialistCapabilityOptions.map((capability) => {
+              const selected = selectedCapabilitySet.has(capability.id);
+
+              return (
+                <button
+                  aria-pressed={selected}
+                  className={`rounded-full px-3 py-2 text-xs font-medium transition ${
+                    selected
+                      ? "bg-[#0a0a0a] text-white"
+                      : "bg-[#f4f4f5] text-[#52525b] hover:bg-[#e4e4e7]"
+                  }`}
+                  key={capability.id}
+                  onClick={() => toggleCapability(capability.id)}
+                  title={capability.description}
+                  type="button"
+                >
+                  {capability.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-[#71717a]">
+            {selectedCapabilities.length > 0
+              ? `${selectedCapabilities.length} selected`
+              : "Select at least one capability."}
+          </p>
+        </fieldset>
 
         <PublishField
           hint={
@@ -371,7 +408,7 @@ export function AgentProfileModal({
               className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
               key={capability}
             >
-              {capability}
+              {specialistCapabilityLabel(capability)}
             </span>
           ))}
         </div>

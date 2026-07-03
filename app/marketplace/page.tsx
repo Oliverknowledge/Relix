@@ -9,6 +9,7 @@ import {
   specialistSlug
 } from "@/app/components/specialist-ui";
 import { formatSol } from "@/app/lib/campaign";
+import { specialistCapabilityLabel } from "@/app/lib/specialist-capabilities";
 import {
   registerPublishedSpecialists,
   seedReputationFor,
@@ -242,7 +243,7 @@ function MarketplaceAgentCard({
                 className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
                 key={capability}
               >
-                {capability}
+                {specialistCapabilityLabel(capability)}
               </span>
             ))}
           </div>

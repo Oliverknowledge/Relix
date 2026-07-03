@@ -16,6 +16,7 @@ import {
   specialistSlug
 } from "@/app/components/specialist-ui";
 import { formatSol } from "@/app/lib/campaign";
+import { specialistCapabilityLabel } from "@/app/lib/specialist-capabilities";
 import {
   registerPublishedSpecialists,
   seedReputationFor,
@@ -206,7 +207,7 @@ export default function SpecialistProfilePage() {
                 className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b]"
                 key={capability}
               >
-                {capability}
+                {specialistCapabilityLabel(capability)}
               </span>
             ))}
           </div>
