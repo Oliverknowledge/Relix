@@ -32,7 +32,8 @@ export default function PublishPage() {
       const response = await fetch("/api/specialists", {
         body: JSON.stringify({
           ...input,
-          capabilities: parseCapabilities(input.capabilities)
+          capabilities: parseCapabilities(input.capabilities),
+          version: "1.0.0"
         }),
         headers: {
           "Content-Type": "application/json"

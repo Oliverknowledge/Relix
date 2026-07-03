@@ -22,7 +22,6 @@ export type PublishSpecialistFormValues = {
   ownerName: string;
   ownerWallet: string;
   prompt: string;
-  version: string;
 };
 
 export const emptyPublishForm: PublishSpecialistFormValues = {
@@ -34,8 +33,7 @@ export const emptyPublishForm: PublishSpecialistFormValues = {
   name: "",
   ownerName: "",
   ownerWallet: "",
-  prompt: "",
-  version: "1.0.0"
+  prompt: ""
 };
 
 export function SpecialistDirectory({
@@ -125,6 +123,9 @@ export function PublishSpecialistForm({
   const [values, setValues] = useState<PublishSpecialistFormValues>(
     emptyPublishForm
   );
+  const selectedModel = cheapClaudeModelOptions.find(
+    (option) => option.id === values.model
+  );
   const update = (field: keyof PublishSpecialistFormValues, value: string) =>
     setValues((current) => ({ ...current, [field]: value }));
 
@@ -195,34 +196,27 @@ export function PublishSpecialistForm({
           />
         </PublishField>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <PublishField
-            hint="Lower-cost Claude models only. Opus, Fable, and Mythos are intentionally excluded."
-            label="Model"
+        <PublishField
+          hint={
+            selectedModel
+              ? `${selectedModel.description} Version is set automatically.`
+              : "Lower-cost Claude models only. Version is set automatically."
+          }
+          label="Model"
+        >
+          <select
+            className="field h-12 w-full min-w-0 px-4 text-sm"
+            onChange={(event) => update("model", event.target.value)}
+            required
+            value={values.model}
           >
-            <select
-              className="field h-12 px-4 text-sm"
-              onChange={(event) => update("model", event.target.value)}
-              required
-              value={values.model}
-            >
-              {cheapClaudeModelOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label} · {option.description}
-                </option>
-              ))}
-            </select>
-          </PublishField>
-          <PublishField label="Version">
-            <input
-              className="field h-12 px-4 text-sm"
-              onChange={(event) => update("version", event.target.value)}
-              placeholder="1.0.0"
-              required
-              value={values.version}
-            />
-          </PublishField>
-        </div>
+            {cheapClaudeModelOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </PublishField>
 
         <PublishField
           hint="How the agent should approach growth work. Grounds its bids and delivery."
