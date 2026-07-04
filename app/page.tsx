@@ -4640,10 +4640,6 @@ function marketplaceBidDelay(index: number) {
 }
 
 function marketplaceResponseName(specialistId: SpecialistId) {
-  if (specialistId === "creator-outreach") {
-    return "Creator Specialist";
-  }
-
   if (specialistId === "tournament") {
     return "Tournament Specialist";
   }

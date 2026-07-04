@@ -1,18 +1,13 @@
 import type { SpecialistAgentAdapter } from "@/app/lib/specialist-sdk";
 
 // Specialist ids are open-ended so third parties can publish their own seller
-// agents. The four built-ins keep stable ids; published agents get generated
+// agents. The built-ins keep stable ids; published agents get generated
 // ids at publish time.
 export type SpecialistId = string;
 
-export type BuiltInSpecialistId =
-  | "creator-outreach"
-  | "tournament"
-  | "referral"
-  | "community";
+export type BuiltInSpecialistId = "tournament" | "referral" | "community";
 
 export const BUILT_IN_SPECIALIST_IDS: BuiltInSpecialistId[] = [
-  "creator-outreach",
   "tournament",
   "referral",
   "community"
@@ -114,48 +109,12 @@ export type SpecialistReputation = {
   totalEarnedSol: number;
 };
 
-const creatorOutreachAgent: SpecialistAgent = {
-  id: "creator-outreach",
-  name: "Creator Outreach Specialist",
-  ownerName: "Mara Voss",
-  ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: [
-    "creator-briefs",
-    "playtest-programs",
-    "outreach-lists",
-    "clip-strategy"
-  ],
-  basePriceSol: 0.55,
-  deliveryDays: 4,
-  model: "claude-haiku-4-5",
-  version: "2.1.0",
-  prompt:
-    "You are Creator Outreach Specialist, an independent seller agent on the Relix marketplace. Read the founder's repository context and turn the most visible product change into a creator playtest sprint: a creator brief, an outreach angle the founder can approve, and a playtest schedule. Only propose creators whose audience matches the product area, and never contact anyone before founder approval.",
-  status: "active",
-  createdAt: "2026-03-05T14:00:00.000Z",
-  jobsCompleted: 14,
-  totalEarnedSol: 6.8,
-  averageRating: 4.6,
-  lastHiredAt: "2026-06-21T09:00:00.000Z",
-  avatar: "🎬",
-  averageDeliveryDays: 4.4,
-  description:
-    "Turns shipped product work into creator playtests and short clips that act as visual proof for new audiences.",
-  monthlyEarnings: [0.6, 1.1, 1.3, 1.2, 1.4, 1.2],
-  recentClients: ["Nightframe Studio", "Pixel Harbor", "Snowball"]
-};
-
 const tournamentAgent: SpecialistAgent = {
   id: "tournament",
   name: "Tournament Specialist",
   ownerName: "Kenji Sato",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: [
-    "launch-events",
-    "tournament-design",
-    "launch-threads",
-    "urgency-copy"
-  ],
+  capabilities: ["tournament-design", "launch-threads", "urgency-copy"],
   basePriceSol: 0.75,
   deliveryDays: 5,
   model: "claude-haiku-4-5",
@@ -181,12 +140,7 @@ const referralAgent: SpecialistAgent = {
   name: "Referral Specialist",
   ownerName: "Priya Raman",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: [
-    "invite-loops",
-    "reward-ladders",
-    "abuse-review",
-    "retention-hooks"
-  ],
+  capabilities: ["invite-loops", "reward-ladders"],
   basePriceSol: 0.42,
   deliveryDays: 3,
   model: "claude-haiku-4-5",
@@ -212,12 +166,7 @@ const communityAgent: SpecialistAgent = {
   name: "Community Launch Specialist",
   ownerName: "Diego Fuentes",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: [
-    "community-briefs",
-    "moderator-notes",
-    "founder-replies",
-    "tone-guides"
-  ],
+  capabilities: ["community-briefs", "founder-replies"],
   basePriceSol: 0.35,
   deliveryDays: 4,
   model: "claude-haiku-4-5",
@@ -236,18 +185,6 @@ const communityAgent: SpecialistAgent = {
     "Writes calm, founder-led community launches that build trust without hype or invented claims.",
   monthlyEarnings: [0, 0, 0, 0.8, 1.8, 1.8],
   recentClients: ["Hearthside", "MagicBlock", "Quiethold"]
-};
-
-export const creatorOutreachSpecialist: SpecialistAgentAdapter = {
-  metadata() {
-    return creatorOutreachAgent;
-  },
-  async bid(request) {
-    return creatorOutreachBid(request);
-  },
-  async deliver(job) {
-    return creatorOutreachDelivery(job.request);
-  }
 };
 
 export const tournamentSpecialist: SpecialistAgentAdapter = {
@@ -286,11 +223,10 @@ export const communityLaunchSpecialist: SpecialistAgentAdapter = {
   }
 };
 
-// The four built-in seller agents. `specialistRegistry` stays built-in only so
+// The built-in seller agents. `specialistRegistry` stays built-in only so
 // server-side reputation seeding is stable; published agents are registered at
 // runtime into the lookup maps below.
 export const specialistAdapters: SpecialistAgentAdapter[] = [
-  creatorOutreachSpecialist,
   tournamentSpecialist,
   referralSpecialist,
   communityLaunchSpecialist
@@ -505,40 +441,6 @@ export const specialistWallets = Object.fromEntries(
   specialistRegistry.map((agent) => [agent.id, agent.ownerWallet])
 ) as Record<SpecialistId, string>;
 
-function creatorOutreachBid(context: SpecialistJobContext): Bid {
-  const agent = creatorOutreachAgent;
-  const change = shorten(context.launchChange, 80);
-  const audienceLine = context.analyticsConnected
-    ? context.analyticsAudience
-      ? `Your analytics show real traffic, so creator clips convert warm visitors instead of cold ones.`
-      : `Your analytics show little traffic yet, so borrowed creator audiences are the fastest honest reach.`
-    : `Without analytics connected, creator clips double as your first proof of interest.`;
-
-  return {
-    createdAt: new Date().toISOString(),
-    deliverables: [
-      "Creator brief",
-      "Creator shortlist template",
-      "Outreach messages",
-      "Follow-up messages",
-      "Launch thread"
-    ],
-    deliveryDays: context.websiteRead
-      ? agent.deliveryDays
-      : agent.deliveryDays + 1,
-    id: bidIdFor(context.jobId, agent.id),
-    jobId: context.jobId,
-    priceSol: priceFromBudget(context.budgetSol, 0.32, agent.basePriceSol),
-    reasoning: `"${change}" is the kind of change creators can show on camera. I would brief a shortlist around ${context.productArea}, point their viewers at ${ctaOr(
-      context
-    )}, and let clips carry ${goalFocus(context.goal)}. ${audienceLine}`,
-    risk: `Creator replies usually take 24 to 48 hours, so this is slower than a launch event. If nobody confirms by day two, the fallback is founder-recorded clips of ${lowerFirst(
-      change
-    )}.`,
-    specialistId: agent.id
-  };
-}
-
 function tournamentBid(context: SpecialistJobContext): Bid {
   const agent = tournamentAgent;
   const change = shorten(context.launchChange, 80);
@@ -736,105 +638,6 @@ function tournamentDelivery(context: SpecialistJobContext): SpecialistDelivery {
       )
     ],
     specialistId: "tournament"
-  };
-}
-
-function creatorOutreachDelivery(
-  context: SpecialistJobContext
-): SpecialistDelivery {
-  const change = shorten(context.launchChange, 90);
-  const focus = goalFocus(context.goal);
-  const cta = ctaOr(context);
-
-  return {
-    report: `I turned "${shorten(
-      context.launchChange,
-      70
-    )}" into a creator playtest sprint: brief, shortlist template, outreach and follow-up messages, plus a launch thread for your own channel.`,
-    sections: [
-      {
-        blocks: [
-          {
-            id: "creator-brief",
-            kind: "note",
-            label: "Creator brief",
-            text: [
-              `What shipped: ${shorten(context.launchChange, 110)}.`,
-              `Why it matters: recent ${context.repository} work centres on ${context.productArea} — the part a first-time viewer actually experiences.`,
-              `What to show on camera: a first session on the newest build, unedited hesitations included.`,
-              `Where to send viewers: ${cta}.`,
-              `Campaign goal: ${focus}. No paid bots, no fake engagement, founder reviews before anything goes public.`
-            ].join("\n")
-          }
-        ],
-        id: "creator-brief",
-        title: "Creator Brief"
-      },
-      {
-        blocks: [
-          {
-            id: "creator-shortlist",
-            kind: "note",
-            label: "Shortlist template",
-            text: [
-              `Columns: Creator / Reach / Fit / Status / Notes.`,
-              `Fit test 1: audience overlaps with ${context.productArea}.`,
-              `Fit test 2: has shown products like ${context.productName} on camera before.`,
-              `Fit test 3: comments show viewers who try things, not just watch.`,
-              `Aim for 8 to 10 names; expect 2 to 3 confirmations in the first 48 hours.`
-            ].join("\n")
-          }
-        ],
-        id: "creator-shortlist",
-        title: "Creator Shortlist Template"
-      },
-      {
-        blocks: [
-          {
-            id: "outreach-message-0",
-            kind: "reply",
-            label: "Outreach DM — short",
-            text: `Hi — I work with ${context.productName} (${context.repository}). We just shipped ${lowerFirst(
-              change
-            )} and I think your audience would genuinely enjoy a first look. Open to a short playtest this week? Founder approves everything before it goes anywhere.`
-          },
-          {
-            id: "outreach-message-1",
-            kind: "reply",
-            label: "Outreach DM — playtest angle",
-            text: `Hi — inviting a small group of creators to playtest ${context.productName} before the wider push. The newest build is focused on ${context.productArea}, so a first-session video writes itself. No script, no edits required — just your honest run at ${cta}.`
-          }
-        ],
-        id: "outreach-messages",
-        title: "Outreach Messages"
-      },
-      {
-        blocks: [
-          {
-            id: "follow-up-message-0",
-            kind: "reply",
-            label: "Follow-up — day 2",
-            text: `Quick nudge on the ${context.productName} playtest — the window closes soon because the campaign is aimed at ${focus}. Happy to send a build link or answer anything first.`
-          },
-          {
-            id: "follow-up-message-1",
-            kind: "reply",
-            label: "Follow-up — close the loop",
-            text: `Closing the shortlist for this round of ${context.productName} playtests. If the timing is wrong, no problem — flagging that the next window opens after this launch beat ships.`
-          }
-        ],
-        id: "follow-up-messages",
-        title: "Follow-up Messages"
-      },
-      launchThreadSection([
-        `We are opening ${context.productName} to a small group of creators this week. The newest build ships ${lowerFirst(
-          change
-        )} — and we want honest first sessions on camera.`,
-        `Why creators first: the recent work is about ${context.productArea}, and that is judged in the first minute of play. Clips beat claims.`,
-        `Want in, or want to watch? Start at ${cta}. Every playtest pushes us toward ${focus}.`
-      ])
-    ],
-    specialistId: "creator-outreach"
   };
 }
 

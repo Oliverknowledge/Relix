@@ -413,14 +413,6 @@ function goalAffinity(specialistId: BuiltInSpecialistId, goal: string) {
       : 1;
   }
 
-  if (specialistId === "creator-outreach") {
-    return /(creator|clip|video|content|awareness|audience|views|proof)/.test(
-      text
-    )
-      ? 2
-      : 0.9;
-  }
-
   if (specialistId === "referral") {
     return /(referral|invite|viral|share|friend|loop)/.test(text) ? 2 : 0.6;
   }
@@ -440,20 +432,6 @@ function repoWebsiteAffinity(
 
     if (/(onboarding|signup|gameplay|player|game)/.test(area)) {
       fit += 0.6;
-    }
-
-    if (context.websiteRead) {
-      fit += 0.2;
-    }
-
-    return Math.min(fit, 2);
-  }
-
-  if (specialistId === "creator-outreach") {
-    let fit = freshShip * 0.8;
-
-    if (/(game|player|gameplay|visual)/.test(area)) {
-      fit += 0.8;
     }
 
     if (context.websiteRead) {
@@ -492,14 +470,8 @@ function neededCapabilities(context: SpecialistJobContext) {
   const tags = new Set<string>(["launch-threads"]);
 
   if (/(signup|waitlist|launch|urgent|deadline|week|fast)/.test(goal)) {
-    tags.add("launch-events");
+    tags.add("tournament-design");
     tags.add("urgency-copy");
-  }
-
-  if (/(creator|clip|video|content|awareness|audience|views)/.test(goal)) {
-    tags.add("creator-briefs");
-    tags.add("outreach-lists");
-    tags.add("clip-strategy");
   }
 
   if (/(referral|invite|viral|share|friend|loop)/.test(goal)) {
@@ -509,17 +481,12 @@ function neededCapabilities(context: SpecialistJobContext) {
 
   if (/(community|discord|trust|retention|members)/.test(goal)) {
     tags.add("community-briefs");
-    tags.add("moderator-notes");
     tags.add("founder-replies");
   }
 
   if (/(onboarding|signup|first)/.test(area)) {
-    tags.add("launch-events");
+    tags.add("tournament-design");
     tags.add("urgency-copy");
-  }
-
-  if (/(game|player|gameplay)/.test(area)) {
-    tags.add("clip-strategy");
   }
 
   return [...tags];
@@ -592,10 +559,6 @@ function goalReasonLine(agent: SpecialistAgent, context: SpecialistJobContext) {
 
   if (agent.id === "tournament") {
     return `${goal} needs urgency, and a time-boxed event creates a real deadline`;
-  }
-
-  if (agent.id === "creator-outreach") {
-    return `${goal} needs visible proof, which creator sessions provide`;
   }
 
   if (agent.id === "referral") {

@@ -1,9 +1,8 @@
+// Only capabilities whose output the app actually acts on are listed here:
+// reward-ladders settles on-chain, and the rest become real X assets the
+// founder can publish. Note-only "plan" capabilities were removed so a
+// specialist never advertises work the app does not execute or publish.
 export const specialistCapabilityOptions = [
-  {
-    description: "Package a release or product update into a launch moment.",
-    id: "launch-events",
-    label: "Launch events"
-  },
   {
     description: "Write concise X launch threads grounded in product changes.",
     id: "launch-threads",
@@ -15,59 +14,19 @@ export const specialistCapabilityOptions = [
     label: "Urgency copy"
   },
   {
-    description: "Design tournaments or competitive events around a new build.",
+    description: "Package a release into a time-boxed launch event with an announcement thread.",
     id: "tournament-design",
     label: "Tournament design"
   },
   {
-    description: "Prepare creator-facing briefs for playtests and launches.",
-    id: "creator-briefs",
-    label: "Creator briefs"
-  },
-  {
-    description: "Plan creator playtest programs before outreach begins.",
-    id: "playtest-programs",
-    label: "Playtest programs"
-  },
-  {
-    description: "Build targeted outreach lists for creators or communities.",
-    id: "outreach-lists",
-    label: "Outreach lists"
-  },
-  {
-    description: "Turn gameplay or product changes into short-form clips.",
-    id: "clip-strategy",
-    label: "Clip strategy"
-  },
-  {
-    description: "Design invite loops for waitlists and early users.",
+    description: "Write invite messages for waitlists and early users.",
     id: "invite-loops",
     label: "Invite loops"
   },
   {
-    description: "Create capped reward ladders for referral campaigns.",
+    description: "Pay capped referral rewards on-chain from the agent treasury.",
     id: "reward-ladders",
     label: "Reward ladders"
-  },
-  {
-    description: "Review referral mechanics for bot or abuse risk.",
-    id: "abuse-review",
-    label: "Abuse review"
-  },
-  {
-    description: "Add retention hooks after the first launch touch.",
-    id: "retention-hooks",
-    label: "Retention hooks"
-  },
-  {
-    description: "Prepare community launch briefs for founder-led updates.",
-    id: "community-briefs",
-    label: "Community briefs"
-  },
-  {
-    description: "Write moderation notes for campaign or launch periods.",
-    id: "moderator-notes",
-    label: "Moderator notes"
   },
   {
     description: "Draft calm founder replies for common launch questions.",
@@ -75,9 +34,9 @@ export const specialistCapabilityOptions = [
     label: "Founder replies"
   },
   {
-    description: "Define tone rules so campaign copy stays consistent.",
-    id: "tone-guides",
-    label: "Tone guides"
+    description: "Prepare community launch announcements for founder-led updates.",
+    id: "community-briefs",
+    label: "Community briefs"
   }
 ] as const;
 
