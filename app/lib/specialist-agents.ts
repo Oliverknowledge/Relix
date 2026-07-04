@@ -114,7 +114,12 @@ const tournamentAgent: SpecialistAgent = {
   name: "Tournament Specialist",
   ownerName: "Kenji Sato",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: ["tournament-design", "launch-threads", "urgency-copy"],
+  capabilities: [
+    "tournament-design",
+    "prize-payouts",
+    "launch-threads",
+    "urgency-copy"
+  ],
   basePriceSol: 0.75,
   deliveryDays: 5,
   model: "claude-haiku-4-5",

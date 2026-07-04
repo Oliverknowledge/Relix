@@ -9,7 +9,7 @@ import {
   specialistSlug
 } from "@/app/components/specialist-ui";
 import { formatSol } from "@/app/lib/campaign";
-import { specialistCapabilityLabel } from "@/app/lib/specialist-capabilities";
+import { CapabilityChip } from "@/app/components/capability-chip";
 import {
   registerPublishedSpecialists,
   seedReputationFor,
@@ -239,12 +239,11 @@ function MarketplaceAgentCard({
           <p className="text-xs font-medium text-[#71717a]">Capabilities</p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {agent.capabilities.map((capability) => (
-              <span
-                className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+              <CapabilityChip
+                baseClassName="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+                capability={capability}
                 key={capability}
-              >
-                {specialistCapabilityLabel(capability)}
-              </span>
+              />
             ))}
           </div>
         </div>

@@ -22,7 +22,7 @@ Nothing is posted without explicit founder approval.
 - Phantom wallet connection on Solana devnet.
 - Devnet balance reads and optional devnet airdrop.
 - Real devnet transfer when payment is released.
-- Agent-signed reward-ladder payouts: the Referral Specialist's `reward-ladders` capability settles a capped ladder of real devnet transfers from an agent-controlled treasury wallet — signed server-side with no human approval — to the referrer wallet. The cap is enforced server-side and every rung has an Explorer link.
+- Agent-signed on-chain capabilities: the Referral Specialist's `reward-ladders` and the Tournament Specialist's `prize-payouts` settle capped ladders/pools of real devnet transfers from an agent-controlled treasury wallet — signed server-side with no human approval — to the recipient wallet. Caps are enforced server-side and every payout has an Explorer link. These capabilities are badged "⛓ on-chain" across the app to distinguish them from content capabilities.
 - GitHub OAuth and GitHub API repository reads.
 - X OAuth 2.0 + PKCE.
 - X access token refresh with `offline.access`.

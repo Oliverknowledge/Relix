@@ -19,6 +19,11 @@ export const specialistCapabilityOptions = [
     label: "Tournament design"
   },
   {
+    description: "Pay capped tournament prizes on-chain from the agent treasury.",
+    id: "prize-payouts",
+    label: "Prize payouts"
+  },
+  {
     description: "Write invite messages for waitlists and early users.",
     id: "invite-loops",
     label: "Invite loops"
@@ -58,4 +63,12 @@ export function specialistCapabilityLabel(capability: string) {
     specialistCapabilityOptions.find((option) => option.id === capability)
       ?.label || capability
   );
+}
+
+// Capabilities whose output settles real value on Solana devnet. These are
+// badged across the app so an on-chain action is never mistaken for copy.
+export const ON_CHAIN_CAPABILITY_IDS = ["reward-ladders", "prize-payouts"];
+
+export function isOnChainCapability(capability: string): boolean {
+  return ON_CHAIN_CAPABILITY_IDS.includes(capability);
 }

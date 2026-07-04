@@ -18,8 +18,10 @@ import {
   useRef,
   useState
 } from "react";
+import { PrizePayoutCard } from "@/app/components/prize-payout";
 import { RewardLadderCard } from "@/app/components/reward-ladder";
 import { AgentProfileModal } from "@/app/components/specialist-ui";
+import { hasPrizePayouts } from "@/app/lib/prize-pool";
 import { hasRewardLadder } from "@/app/lib/reward-ladder";
 import {
   chooseBidForPlan,
@@ -3035,6 +3037,7 @@ function SpecialistDeliverySection({
   const blocks = deliveryBlocksFrom(delivery);
   const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
   const showRewardLadder = hasRewardLadder(winnerAgent?.capabilities ?? []);
+  const showPrizePayout = hasPrizePayouts(winnerAgent?.capabilities ?? []);
   const hasLaunchThread = blocks.some(
     (block) => block.section === "Launch Thread"
   );
@@ -3066,6 +3069,17 @@ function SpecialistDeliverySection({
             campaignId={campaign.id}
             founderWallet={founderWallet}
             onRewardPaid={onRewardPaid}
+            repository={assets.repository}
+            specialistId={campaign.winningBid.specialistId}
+            specialistName={specialistDisplayName(campaign.winningBid)}
+          />
+        ) : null}
+
+        {showPrizePayout ? (
+          <PrizePayoutCard
+            campaignId={campaign.id}
+            founderWallet={founderWallet}
+            onPrizePaid={onRewardPaid}
             repository={assets.repository}
             specialistId={campaign.winningBid.specialistId}
             specialistName={specialistDisplayName(campaign.winningBid)}

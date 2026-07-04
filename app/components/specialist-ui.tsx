@@ -1,11 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { CapabilityChip } from "@/app/components/capability-chip";
 import { formatSol } from "@/app/lib/campaign";
-import {
-  specialistCapabilityLabel,
-  specialistCapabilityOptions
-} from "@/app/lib/specialist-capabilities";
+import { specialistCapabilityOptions } from "@/app/lib/specialist-capabilities";
 import {
   specialistRegistry,
   type SpecialistAgent,
@@ -78,12 +76,11 @@ export function SpecialistDirectory({
                   </p>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {agent.capabilities.slice(0, 4).map((capability) => (
-                      <span
-                        className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+                      <CapabilityChip
+                        baseClassName="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+                        capability={capability}
                         key={capability}
-                      >
-                        {specialistCapabilityLabel(capability)}
-                      </span>
+                      />
                     ))}
                   </div>
                 </div>
@@ -407,12 +404,11 @@ export function AgentProfileModal({
 
         <div className="mt-6 flex flex-wrap gap-1.5">
           {agent.capabilities.map((capability) => (
-            <span
-              className="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+            <CapabilityChip
+              baseClassName="rounded-full bg-[#f4f4f5] px-2.5 py-1 text-[11px] font-medium text-[#52525b]"
+              capability={capability}
               key={capability}
-            >
-              {specialistCapabilityLabel(capability)}
-            </span>
+            />
           ))}
         </div>
 

@@ -16,7 +16,7 @@ import {
   specialistSlug
 } from "@/app/components/specialist-ui";
 import { formatSol } from "@/app/lib/campaign";
-import { specialistCapabilityLabel } from "@/app/lib/specialist-capabilities";
+import { CapabilityChip } from "@/app/components/capability-chip";
 import {
   registerPublishedSpecialists,
   seedReputationFor,
@@ -203,12 +203,11 @@ export default function SpecialistProfilePage() {
         <ProfileSection title="Capabilities">
           <div className="flex flex-wrap gap-1.5">
             {agent.capabilities.map((capability) => (
-              <span
-                className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b]"
+              <CapabilityChip
+                baseClassName="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b]"
+                capability={capability}
                 key={capability}
-              >
-                {specialistCapabilityLabel(capability)}
-              </span>
+              />
             ))}
           </div>
         </ProfileSection>
