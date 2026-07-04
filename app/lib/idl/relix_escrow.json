@@ -1,0 +1,390 @@
+{
+  "address": "8dBQUA3ja6Z82oZ5C4qEmTg5CJ3jRtvnMb48h4vL1jgK",
+  "metadata": {
+    "name": "relix_escrow",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Relix native SOL escrow MVP"
+  },
+  "instructions": [
+    {
+      "name": "initialize_escrow",
+      "discriminator": [
+        243,
+        160,
+        77,
+        153,
+        11,
+        92,
+        48,
+        209
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  108,
+                  105,
+                  120,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "specialist"
+        },
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "job_id",
+          "type": "string"
+        },
+        {
+          "name": "total_amount_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "deadline_unix",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "refund_escrow",
+      "discriminator": [
+        107,
+        186,
+        89,
+        99,
+        26,
+        194,
+        23,
+        204
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  108,
+                  105,
+                  120,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "release_escrow",
+      "discriminator": [
+        146,
+        253,
+        129,
+        233,
+        20,
+        145,
+        181,
+        206
+      ],
+      "accounts": [
+        {
+          "name": "founder",
+          "signer": true,
+          "relations": [
+            "escrow"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  108,
+                  105,
+                  120,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "escrow"
+              }
+            ]
+          }
+        },
+        {
+          "name": "specialist",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Escrow",
+      "discriminator": [
+        31,
+        213,
+        123,
+        187,
+        186,
+        22,
+        218,
+        155
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidJobId",
+      "msg": "Job id is required and must fit in the escrow account."
+    },
+    {
+      "code": 6001,
+      "name": "InvalidTotalAmount",
+      "msg": "Total amount must be greater than zero."
+    },
+    {
+      "code": 6002,
+      "name": "FeeTooHigh",
+      "msg": "Fee basis points cannot exceed the Relix escrow cap."
+    },
+    {
+      "code": 6003,
+      "name": "SpecialistAmountZero",
+      "msg": "Specialist amount must be greater than zero."
+    },
+    {
+      "code": 6004,
+      "name": "InvalidSpecialistWallet",
+      "msg": "Specialist wallet cannot be the default public key."
+    },
+    {
+      "code": 6005,
+      "name": "InvalidTreasuryWallet",
+      "msg": "Treasury wallet cannot be the default public key."
+    },
+    {
+      "code": 6006,
+      "name": "MathOverflow",
+      "msg": "Escrow math overflowed."
+    },
+    {
+      "code": 6007,
+      "name": "UnauthorizedFounder",
+      "msg": "Only the escrow founder can perform this action."
+    },
+    {
+      "code": 6008,
+      "name": "AlreadyReleased",
+      "msg": "Escrow was already released."
+    },
+    {
+      "code": 6009,
+      "name": "AlreadyRefunded",
+      "msg": "Escrow was already refunded."
+    },
+    {
+      "code": 6010,
+      "name": "DeadlineNotReached",
+      "msg": "Refund is only available after the escrow deadline."
+    },
+    {
+      "code": 6011,
+      "name": "InsufficientVaultFunds",
+      "msg": "Vault does not hold enough lamports for this escrow."
+    },
+    {
+      "code": 6012,
+      "name": "VaultAlreadyFunded",
+      "msg": "Vault already holds lamports before escrow initialization."
+    },
+    {
+      "code": 6013,
+      "name": "InvalidSpecialistAccount",
+      "msg": "Specialist account does not match this escrow."
+    },
+    {
+      "code": 6014,
+      "name": "InvalidTreasuryAccount",
+      "msg": "Treasury account does not match this escrow."
+    }
+  ],
+  "types": [
+    {
+      "name": "Escrow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "job_id",
+            "type": "string"
+          },
+          {
+            "name": "founder",
+            "type": "pubkey"
+          },
+          {
+            "name": "specialist",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_amount_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "specialist_amount_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "deadline_unix",
+            "type": "i64"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "EscrowStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Funded"
+          },
+          {
+            "name": "Released"
+          },
+          {
+            "name": "Refunded"
+          }
+        ]
+      }
+    }
+  ]
+}
