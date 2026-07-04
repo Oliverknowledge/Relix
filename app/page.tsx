@@ -18,9 +18,15 @@ import {
   useRef,
   useState
 } from "react";
+import { MarketActivityTimeline } from "@/app/components/market-activity";
 import { PrizePayoutCard } from "@/app/components/prize-payout";
 import { RewardLadderCard } from "@/app/components/reward-ladder";
 import { AgentProfileModal } from "@/app/components/specialist-ui";
+import {
+  buildMarketEvents,
+  type MarketEvent,
+  type MarketEventDraft
+} from "@/app/lib/market-events";
 import { hasPrizePayouts } from "@/app/lib/prize-pool";
 import { hasRewardLadder } from "@/app/lib/reward-ladder";
 import {
@@ -266,6 +272,9 @@ export default function Home() {
   const [isPlanningNext, setIsPlanningNext] = useState(false);
   const [xStatus, setXStatus] = useState<XConnectionStatus>(emptyXStatus);
   const [workLog, setWorkLog] = useState<WorkLogEntry[]>([]);
+  const [marketEvents, setMarketEvents] = useState<MarketEvent[]>([]);
+  const marketSeqRef = useRef(0);
+  const lastSelectedBidRef = useRef<string | null>(null);
   const [activeStage, setActiveStage] = useState<FlowStage>("setup");
   const [isRunning, setIsRunning] = useState(false);
   const [hasRun, setHasRun] = useState(false);
@@ -347,6 +356,35 @@ export default function Home() {
       setBalanceSol(null);
     }
   }, [connection, publicKey]);
+
+  // Appends typed events to the visible Market Activity timeline and persists
+  // them (local JSON or KV) so the timeline survives a refresh. Sequence numbers
+  // stay monotonic across batches via marketSeqRef.
+  const emitMarketEvents = useCallback(
+    (campaignId: string, repository: string, drafts: MarketEventDraft[]) => {
+      if (drafts.length === 0) {
+        return;
+      }
+
+      const events = buildMarketEvents(
+        campaignId,
+        repository,
+        drafts,
+        marketSeqRef.current
+      );
+      marketSeqRef.current += events.length;
+
+      setMarketEvents((current) => [...current, ...events]);
+      void fetch("/api/market-events", {
+        body: JSON.stringify({ events }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }).catch(() => {
+        // Non-fatal: the timeline is already shown from local state.
+      });
+    },
+    []
+  );
 
   const loadXPosts = useCallback(
     async (campaignId: string, publishDue = false) => {
@@ -591,8 +629,51 @@ export default function Home() {
     }
 
     const chosenPlan = chooseBidForPlan(campaign, bidId);
+    const chosenBid = chosenPlan.winningBid;
 
-    if (chosenPlan.winningBid.id === campaign.winningBid.id) {
+    // Records the founder's hire on the timeline. Guarded so re-clicking the
+    // same specialist does not duplicate events; changing the choice re-emits.
+    const emitSelection = () => {
+      if (lastSelectedBidRef.current === chosenBid.id) {
+        return;
+      }
+      lastSelectedBidRef.current = chosenBid.id;
+
+      const agent = getSpecialistAgent(chosenBid.specialistId);
+      const isOverride = chosenBid.id !== chosenPlan.recommendedBidId;
+      const name = specialistDisplayName(chosenBid);
+
+      emitMarketEvents(chosenPlan.id, chosenPlan.jobContext.repository, [
+        {
+          type: "FOUNDER_SELECTED_SPECIALIST",
+          message: `Founder hired ${name} ${
+            isOverride
+              ? "(override of the Growth Employee's recommendation)"
+              : "(the recommended specialist)"
+          } at ${formatSol(chosenBid.priceSol)}.`,
+          agentName: name,
+          walletAddress: agent?.ownerWallet,
+          solAmount: chosenBid.priceSol
+        },
+        {
+          type: "SPECIALIST_DELIVERY_RECEIVED",
+          message: `${name} (seller) delivered the launch assets for founder review.`,
+          agentName: name
+        },
+        {
+          type: "CAMPAIGN_ACTIVE",
+          message: `Campaign active — ${name} hired for ${formatSol(
+            chosenBid.priceSol
+          )}. Payment/escrow is the next step.`,
+          agentName: name,
+          solAmount: chosenBid.priceSol
+        }
+      ]);
+    };
+
+    // Accepting the recommendation: delivery already exists from the run.
+    if (chosenBid.id === campaign.winningBid.id) {
+      emitSelection();
       setActiveStage("delivery");
       return;
     }
@@ -601,7 +682,7 @@ export default function Home() {
 
     try {
       const nextDelivery = await deliverCampaign(
-        chosenPlan.winningBid.specialistId,
+        chosenBid.specialistId,
         chosenPlan.jobContext
       );
 
@@ -615,11 +696,12 @@ export default function Home() {
             assets: campaignAssets,
             campaign: chosenPlan,
             github: githubContext,
-            specialistName: specialistDisplayName(chosenPlan.winningBid)
+            specialistName: specialistDisplayName(chosenBid)
           })
         );
       }
 
+      emitSelection();
       setActiveStage("delivery");
     } catch {
       setIntegrationError(
@@ -820,6 +902,9 @@ export default function Home() {
     setIsExecutingWork(false);
     setNextPlan(null);
     setWorkLog([]);
+    setMarketEvents([]);
+    marketSeqRef.current = 0;
+    lastSelectedBidRef.current = null;
     setHasRun(false);
     setIntegrationError(null);
     setGithubContext(null);
@@ -961,6 +1046,56 @@ export default function Home() {
       await loadXPosts(nextCampaign.id, true);
       void saveActivity(nextCampaign.id, context.fullName, pendingActivity);
 
+      const recommendedBid =
+        nextCampaign.bids.find(
+          (bid) => bid.id === nextCampaign.recommendedBidId
+        ) || nextCampaign.winningBid;
+      emitMarketEvents(nextCampaign.id, context.fullName, [
+        {
+          type: "GROWTH_GOAL_CREATED",
+          message: `Founder created a growth goal: "${runGoal}" · budget ${formatSol(
+            nextRequest.budgetSol
+          )}.`
+        },
+        {
+          type: "PRODUCT_CONTEXT_READ",
+          message: `Growth Employee read product context from ${context.fullName} — ${context.commits.length} commits analysed.`
+        },
+        {
+          type: "LAUNCH_OPPORTUNITY_FOUND",
+          message: `Launch opportunity found: ${nextAssets.opportunityLabel}.`
+        },
+        {
+          type: "SPECIALIST_JOB_POSTED",
+          message: `Growth Employee (buyer) posted a paid job to the specialist marketplace, budget ${formatSol(
+            nextRequest.budgetSol
+          )}.`
+        },
+        {
+          type: "MARKETPLACE_NOTIFIED",
+          message: `Marketplace notified ${nextCampaign.bids.length} seller agents — they are competing for this paid job.`
+        },
+        ...nextCampaign.bids.map((bid) => ({
+          type: "SELLER_AGENT_BID_RECEIVED" as const,
+          message: `${specialistDisplayName(bid)} (seller) bid ${formatSol(
+            bid.priceSol
+          )} for ${bid.deliveryDays}-day delivery.`,
+          agentName: specialistDisplayName(bid),
+          walletAddress: getSpecialistAgent(bid.specialistId)?.ownerWallet,
+          solAmount: bid.priceSol
+        })),
+        {
+          type: "GROWTH_EMPLOYEE_RECOMMENDED_SPECIALIST",
+          message: `Growth Employee recommends ${specialistDisplayName(
+            recommendedBid
+          )} at ${formatSol(recommendedBid.priceSol)}. ${firstSentence(
+            nextCampaign.selection.reason
+          )}`,
+          agentName: specialistDisplayName(recommendedBid),
+          solAmount: recommendedBid.priceSol
+        }
+      ]);
+
       await addLog("Comparing product and website...", "active", 720);
       await addLog(nextAssets.websiteComparison.summary, "done");
       await addLog("Detecting launch-worthy changes...", "active", 720);
@@ -1073,6 +1208,26 @@ export default function Home() {
     setExecutedActionCount(activeCampaignSnapshot.growthWork.actions.length);
     setHasRun(true);
     setActiveStage("complete");
+
+    // Rehydrate the persisted market-activity timeline for the resumed campaign.
+    const resumedCampaignId = activeCampaignSnapshot.campaign.id;
+    void fetch(
+      `/api/market-events?campaignId=${encodeURIComponent(resumedCampaignId)}`,
+      { cache: "no-store" }
+    )
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { events?: MarketEvent[] } | null) => {
+        const events = Array.isArray(data?.events) ? data.events : [];
+        setMarketEvents(events);
+        marketSeqRef.current = events.reduce(
+          (max, event) => Math.max(max, event.seq + 1),
+          0
+        );
+        lastSelectedBidRef.current = null;
+      })
+      .catch(() => {
+        // Non-fatal: resumed flow simply shows an empty timeline.
+      });
 
     window.setTimeout(() => {
       scrollToElement(resultsRef.current, "smooth");
@@ -1599,6 +1754,16 @@ export default function Home() {
       {activeStage === "working" ? (
         <section className="mx-auto w-full max-w-6xl px-6 pb-24 pt-28 sm:px-8">
           <WorkLog entries={workLog} />
+        </section>
+      ) : null}
+
+      {marketEvents.length > 0 ? (
+        <section
+          className={`mx-auto w-full max-w-6xl px-6 pb-6 sm:px-8 ${
+            activeStage === "working" ? "" : "pt-28"
+          }`}
+        >
+          <MarketActivityTimeline events={marketEvents} />
         </section>
       ) : null}
 
