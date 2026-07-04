@@ -42,13 +42,13 @@ export async function getTreasuryKeypair(): Promise<Keypair> {
 
   const fromEnv = process.env.RELIX_AGENT_TREASURY_SECRET?.trim();
   if (fromEnv) {
-    cachedKeypair = keypairFromBase64(fromEnv);
+    cachedKeypair = keypairFromSecret(fromEnv);
     return cachedKeypair;
   }
 
   const persisted = await readPersistedSecret();
   if (persisted) {
-    cachedKeypair = keypairFromBase64(persisted);
+    cachedKeypair = keypairFromSecret(persisted);
     return cachedKeypair;
   }
 
@@ -145,9 +145,64 @@ export async function payFromTreasury(
   return { signature, slot };
 }
 
-function keypairFromBase64(secret: string): Keypair {
-  const bytes = Uint8Array.from(Buffer.from(secret, "base64"));
-  return Keypair.fromSecretKey(bytes);
+/**
+ * Parses a devnet secret key in any of the formats a founder is likely to have:
+ * a Phantom "export private key" base58 string, a `solana-keygen` JSON byte
+ * array, or a base64 string (the format we persist). Accepts a 64-byte secret
+ * key or a 32-byte seed.
+ */
+function keypairFromSecret(secret: string): Keypair {
+  const trimmed = secret.trim();
+
+  if (trimmed.startsWith("[")) {
+    const numbers = JSON.parse(trimmed) as number[];
+    return keypairFromBytes(Uint8Array.from(numbers));
+  }
+
+  const base58 = tryDecodeBase58(trimmed);
+  if (base58 && (base58.length === 64 || base58.length === 32)) {
+    return keypairFromBytes(base58);
+  }
+
+  return keypairFromBytes(Uint8Array.from(Buffer.from(trimmed, "base64")));
+}
+
+function keypairFromBytes(bytes: Uint8Array): Keypair {
+  return bytes.length === 32
+    ? Keypair.fromSeed(bytes)
+    : Keypair.fromSecretKey(bytes);
+}
+
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+// Minimal base58 decoder so a Phantom-exported key works with no extra
+// dependency. Returns null when the string contains non-base58 characters.
+function tryDecodeBase58(value: string): Uint8Array | null {
+  const bytes: number[] = [];
+
+  for (const char of value) {
+    let carry = BASE58_ALPHABET.indexOf(char);
+    if (carry < 0) {
+      return null;
+    }
+
+    for (let i = 0; i < bytes.length; i += 1) {
+      carry += bytes[i] * 58;
+      bytes[i] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+
+  for (let i = 0; i < value.length && value[i] === "1"; i += 1) {
+    bytes.push(0);
+  }
+
+  return Uint8Array.from(bytes.reverse());
 }
 
 async function readPersistedSecret(): Promise<string | null> {

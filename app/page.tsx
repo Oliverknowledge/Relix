@@ -22,6 +22,7 @@ import { RewardLadderCard } from "@/app/components/reward-ladder";
 import { AgentProfileModal } from "@/app/components/specialist-ui";
 import { hasRewardLadder } from "@/app/lib/reward-ladder";
 import {
+  chooseBidForPlan,
   createCampaignPlan,
   defaultFounderRequest,
   type Bid,
@@ -258,6 +259,7 @@ export default function Home() {
   const [specialistDelivery, setSpecialistDelivery] =
     useState<SpecialistDelivery | null>(null);
   const [growthWork, setGrowthWork] = useState<GrowthEmployeeWork | null>(null);
+  const [choosingBidId, setChoosingBidId] = useState<string | null>(null);
   const [nextPlan, setNextPlan] = useState<NextStepPlan | null>(null);
   const [isPlanningNext, setIsPlanningNext] = useState(false);
   const [xStatus, setXStatus] = useState<XConnectionStatus>(emptyXStatus);
@@ -575,6 +577,54 @@ export default function Home() {
       setScheduleMessage(null);
     } catch {
       setIntegrationError("Could not disconnect X.");
+    }
+  };
+
+  // The Growth Employee only recommends a specialist; the founder makes the
+  // final hire here. Choosing a different specialist re-points the plan and
+  // regenerates the delivery for the specialist actually hired.
+  const chooseSpecialist = async (bidId: string) => {
+    if (!campaign || choosingBidId) {
+      return;
+    }
+
+    const chosenPlan = chooseBidForPlan(campaign, bidId);
+
+    if (chosenPlan.winningBid.id === campaign.winningBid.id) {
+      setActiveStage("delivery");
+      return;
+    }
+
+    setChoosingBidId(bidId);
+
+    try {
+      const nextDelivery = await deliverCampaign(
+        chosenPlan.winningBid.specialistId,
+        chosenPlan.jobContext
+      );
+
+      setCampaign(chosenPlan);
+      setSpecialistDelivery(nextDelivery);
+      setXDrafts(draftsFromDelivery(nextDelivery));
+
+      if (campaignAssets && githubContext) {
+        setGrowthWork(
+          createGrowthEmployeeWork({
+            assets: campaignAssets,
+            campaign: chosenPlan,
+            github: githubContext,
+            specialistName: specialistDisplayName(chosenPlan.winningBid)
+          })
+        );
+      }
+
+      setActiveStage("delivery");
+    } catch {
+      setIntegrationError(
+        "Could not prepare the delivery for that specialist. Try again."
+      );
+    } finally {
+      setChoosingBidId(null);
     }
   };
 
@@ -1565,6 +1615,7 @@ export default function Home() {
           balanceSol={balanceSol}
           campaign={campaign}
           campaignStatusOverride={campaignStatusOverride}
+          choosingBidId={choosingBidId}
           connected={connected}
           copiedAssetId={copiedAssetId}
           delivery={specialistDelivery}
@@ -1583,6 +1634,7 @@ export default function Home() {
           nextPlan={nextPlan}
           onCancelPost={cancelScheduledXPost}
           onCampaignStatusChange={setCampaignStatusOverride}
+          onChooseSpecialist={chooseSpecialist}
           onCopyAsset={copyAsset}
           onEditAsset={setEditingAssetId}
           onMarkPublishedManual={markAssetPublishedManually}
@@ -1911,6 +1963,7 @@ function GuidedResultFlow({
   balanceSol,
   campaign,
   campaignStatusOverride,
+  choosingBidId,
   connected,
   copiedAssetId,
   delivery,
@@ -1928,6 +1981,7 @@ function GuidedResultFlow({
   nextPlan,
   onCancelPost,
   onCampaignStatusChange,
+  onChooseSpecialist,
   onCopyAsset,
   onEditAsset,
   onMarkPublishedManual,
@@ -1966,6 +2020,7 @@ function GuidedResultFlow({
   balanceSol: number | null;
   campaign: CampaignPlan;
   campaignStatusOverride: CampaignStatus | null;
+  choosingBidId: string | null;
   connected: boolean;
   copiedAssetId: string | null;
   delivery: SpecialistDelivery;
@@ -1983,6 +2038,7 @@ function GuidedResultFlow({
   nextPlan: NextStepPlan | null;
   onCancelPost: (postId: string) => Promise<void>;
   onCampaignStatusChange: (status: CampaignStatus) => void;
+  onChooseSpecialist: (bidId: string) => Promise<void>;
   onCopyAsset: (id: string, text: string) => Promise<void>;
   onEditAsset: (id: string | null) => void;
   onMarkPublishedManual: (sourceId: string) => void;
@@ -2089,10 +2145,11 @@ function GuidedResultFlow({
         {activeStage === "specialist" ? (
           <SpecialistSelectionSection
             campaign={campaign}
+            choosingBidId={choosingBidId}
             memory={memory}
+            onChooseSpecialist={onChooseSpecialist}
             onOpenProfile={onOpenProfile}
             reputation={reputation}
-            setActiveStage={setActiveStage}
           />
         ) : null}
 
@@ -2308,19 +2365,25 @@ function LaunchOpportunitySection({
 
 function SpecialistSelectionSection({
   campaign,
+  choosingBidId,
   memory,
+  onChooseSpecialist,
   onOpenProfile,
-  reputation,
-  setActiveStage
+  reputation
 }: {
   campaign: CampaignPlan;
+  choosingBidId: string | null;
   memory: CampaignMemoryRecord[];
+  onChooseSpecialist: (bidId: string) => Promise<void>;
   onOpenProfile: (id: SpecialistId) => void;
   reputation: Record<SpecialistId, SpecialistReputation>;
-  setActiveStage: (stage: FlowStage) => void;
 }) {
   const previousCampaign = memory[0];
-  const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
+  const recommendedBid =
+    campaign.bids.find((bid) => bid.id === campaign.recommendedBidId) ||
+    campaign.winningBid;
+  const recommendedAgent = getSpecialistAgent(recommendedBid.specialistId);
+  const isChoosing = choosingBidId !== null;
   const sortedBids = [...campaign.bids].sort(
     (a, b) =>
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -2333,8 +2396,9 @@ function SpecialistSelectionSection({
         title={`${campaign.bids.length} seller agents responded.`}
       />
       <p className="mt-4 max-w-3xl text-sm leading-6 text-[#71717a]">
-        Relix sent one job request to registered seller agents. Each seller
-        returned terms, a wallet, and a short pitch for the work.
+        Relix sent one job request to registered seller agents. Your Growth
+        Employee reviewed every bid and <strong>recommends</strong> one — but you
+        make the final hire. Pick the recommended specialist or override it.
       </p>
 
       <div className="mt-8 rounded-[2rem] bg-[#f4f4f5] p-5">
@@ -2355,7 +2419,7 @@ function SpecialistSelectionSection({
         <div className="mt-4 grid gap-3">
           {sortedBids.map((bid, index) => {
             const agent = getSpecialistAgent(bid.specialistId);
-            const selected = bid.id === campaign.winningBid.id;
+            const selected = bid.id === campaign.recommendedBidId;
             const agentReputation =
               reputation[bid.specialistId] || seedReputationFor(agent);
             const confidence = bidConfidence(campaign, bid);
@@ -2371,13 +2435,20 @@ function SpecialistSelectionSection({
               >
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <p
-                      className={`text-[11px] font-medium uppercase tracking-[0.14em] ${
-                        selected ? "text-[#a1a1aa]" : "text-[#71717a]"
-                      }`}
-                    >
-                      Response {index + 1}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p
+                        className={`text-[11px] font-medium uppercase tracking-[0.14em] ${
+                          selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                        }`}
+                      >
+                        Response {index + 1}
+                      </p>
+                      {selected ? (
+                        <span className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium text-white">
+                          ★ Recommended by your Growth Employee
+                        </span>
+                      ) : null}
+                    </div>
                     <button
                       className="group mt-2 flex min-w-0 items-center gap-3 text-left"
                       onClick={() => onOpenProfile(bid.specialistId)}
@@ -2466,6 +2537,36 @@ function SpecialistSelectionSection({
                     </p>
                   </div>
                 ) : null}
+
+                <div
+                  className={`mt-5 flex flex-wrap items-center gap-3 border-t pt-5 ${
+                    selected ? "border-white/15" : "border-black/5"
+                  }`}
+                >
+                  <button
+                    className={`rounded-full px-5 py-2.5 text-sm font-medium transition disabled:opacity-50 ${
+                      selected
+                        ? "bg-white text-[#0a0a0a] hover:bg-[#e4e4e7]"
+                        : "border hairline bg-white text-[#27272a] hover:border-[#0a0a0a]"
+                    }`}
+                    disabled={isChoosing}
+                    onClick={() => void onChooseSpecialist(bid.id)}
+                    type="button"
+                  >
+                    {choosingBidId === bid.id
+                      ? "Preparing delivery…"
+                      : selected
+                        ? `Hire ${agent.name} (recommended)`
+                        : `Hire ${agent.name} instead`}
+                  </button>
+                  <span
+                    className={`text-xs ${
+                      selected ? "text-[#a1a1aa]" : "text-[#71717a]"
+                    }`}
+                  >
+                    {formatSol(bid.priceSol)} · {bid.deliveryDays}-day delivery
+                  </span>
+                </div>
               </article>
             );
           })}
@@ -2474,14 +2575,15 @@ function SpecialistSelectionSection({
 
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
         <p className="text-sm font-medium text-[#71717a]">
-          Why this specialist?
+          Why your Growth Employee recommends {recommendedAgent.name}
         </p>
         <p className="mt-4 text-xl leading-8 tracking-[-0.02em] text-[#27272a]">
           {campaign.selection.reason}
         </p>
         <p className="mt-4 text-sm leading-6 text-[#52525b]">
-          Seller: {winnerAgent.ownerName} · {shortAddress(winnerAgent.ownerWallet)}{" "}
-          · v{winnerAgent.version}
+          Seller: {recommendedAgent.ownerName} ·{" "}
+          {shortAddress(recommendedAgent.ownerWallet)} · v
+          {recommendedAgent.version}
         </p>
         <p className="mt-2 text-sm leading-6 text-[#52525b]">
           {campaign.budgetStatus.message}
@@ -2491,12 +2593,19 @@ function SpecialistSelectionSection({
             ? `Memory: last time this repo used ${previousCampaign.specialist_used}. Outcome: ${previousCampaign.campaign_outcome}.`
             : "Memory: no previous Relix campaign for this repository."}
         </p>
+        <p className="mt-6 text-sm leading-6 text-[#52525b]">
+          This is a recommendation, not a decision — the hire happens when you
+          pick a specialist above.
+        </p>
         <button
-          className="mt-7 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a]"
-          onClick={() => setActiveStage("delivery")}
+          className="mt-4 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+          disabled={isChoosing}
+          onClick={() => void onChooseSpecialist(recommendedBid.id)}
           type="button"
         >
-          Review the delivery
+          {choosingBidId === recommendedBid.id
+            ? "Preparing delivery…"
+            : `Hire ${recommendedAgent.name} & review delivery`}
         </button>
       </div>
     </section>

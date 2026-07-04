@@ -66,6 +66,7 @@ export type CampaignPlan = {
   daysRemaining: number;
   id: string;
   jobContext: SpecialistJobContext;
+  recommendedBidId: string;
   request: FounderRequest;
   selection: BidSelection;
   winningBid: Bid;
@@ -127,9 +128,54 @@ export async function createCampaignPlan(
     daysRemaining,
     id,
     jobContext,
+    recommendedBidId: winningBid.id,
     request: cleanRequest,
     selection,
     winningBid
+  };
+}
+
+/**
+ * Re-points a plan at a founder-chosen bid without losing the Growth Employee's
+ * recommendation. The AI/deterministic pick stays in `recommendedBidId` and its
+ * reasoning stays in `selection`; `winningBid` and `budgetStatus` follow the
+ * founder's choice so the rest of the flow (delivery, payment) settles on the
+ * specialist they hired. Returns the plan unchanged if the bid is unknown.
+ */
+export function chooseBidForPlan(plan: CampaignPlan, bidId: string): CampaignPlan {
+  const chosen = plan.bids.find((bid) => bid.id === bidId);
+
+  if (!chosen || chosen.id === plan.winningBid.id) {
+    return plan;
+  }
+
+  const withinBudget = chosen.priceSol <= plan.request.budgetSol;
+
+  return {
+    ...plan,
+    budgetStatus: {
+      ...plan.budgetStatus,
+      blocked: !withinBudget,
+      constrainedByBudget: chosen.id !== plan.recommendedBidId,
+      message: withinBudget
+        ? `You hired ${getSpecialistAgent(chosen.specialistId).name} for ${formatSol(
+            chosen.priceSol
+          )}${
+            chosen.id === plan.recommendedBidId
+              ? ", the specialist your Growth Employee recommended."
+              : ", overriding your Growth Employee's recommendation."
+          }`
+        : `${getSpecialistAgent(chosen.specialistId).name} bids ${formatSol(
+            chosen.priceSol
+          )}, above your ${formatSol(
+            plan.request.budgetSol
+          )} budget. Lower the bid or raise the budget before releasing payment.`,
+      remainingBudgetSol: Number(
+        (plan.request.budgetSol - chosen.priceSol).toFixed(3)
+      ),
+      selectedPriceSol: chosen.priceSol
+    },
+    winningBid: chosen
   };
 }
 

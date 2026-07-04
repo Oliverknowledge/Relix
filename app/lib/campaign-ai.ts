@@ -192,6 +192,7 @@ export async function enhanceCampaignPlan(
       ...plan,
       bids,
       budgetStatus,
+      recommendedBidId: winningBid.id,
       selection: { ...plan.selection, reason },
       winningBid
     }
