@@ -765,6 +765,58 @@ export default function Home() {
       setCampaign(chosenPlan);
       setPayment(nextPayment);
       setReleaseStatus("idle");
+      // CoralOS award + escrow-link records. These are Relix protocol events that
+      // LINK the on-chain escrow to the CoralOS session/thread that produced the
+      // winning bid — not messages posted back to the Coral Server. CoralOS
+      // coordinates agents; Anchor settles funds.
+      const coralAward: MarketEventDraft[] =
+        chosenPlan.coordinationMode !== "local-fallback" && chosenPlan.coralProof
+          ? [
+              {
+                type: "CORALOS_BID_AWARDED",
+                message: `Founder awarded CoralOS bid ${chosenBid.id} to ${name} for ${formatSol(
+                  chosenBid.priceSol
+                )} (owner ${shortAddress(
+                  winnerAgent.ownerWallet
+                )}, founder ${shortAddress(
+                  publicKey.toBase58()
+                )}). Planned escrow ${formatSol(
+                  quote.totalSol
+                )}, treasury fee ${formatSol(quote.treasuryFeeSol)}.`,
+                agentName: name,
+                bidId: chosenBid.id,
+                walletAddress: winnerAgent.ownerWallet,
+                solAmount: quote.totalSol,
+                coralSessionId: chosenPlan.coralProof.sessionId,
+                coralThreadId: chosenPlan.coralProof.threadId
+              },
+              {
+                type: "CORALOS_ESCROW_LINKED",
+                message: `Relix linked Anchor escrow ${shortAddress(
+                  nextPayment.escrowAccount
+                )} (vault ${shortAddress(
+                  nextPayment.vault
+                )}) to CoralOS job ${chosenPlan.coralProof.jobId}. CoralOS coordinated the agents; Anchor settles the funds.`,
+                explorerUrl: explorer,
+                txSignature: signature,
+                walletAddress: nextPayment.escrowAccount,
+                bidId: chosenBid.id,
+                coralSessionId: chosenPlan.coralProof.sessionId,
+                coralThreadId: chosenPlan.coralProof.threadId
+              },
+              {
+                type: "CORALOS_ESCROW_FUNDED",
+                message: `${formatSol(
+                  quote.totalSol
+                )} locked in the escrow vault for the CoralOS-awarded specialist ${name}.`,
+                explorerUrl: explorer,
+                txSignature: signature,
+                walletAddress: nextPayment.vault,
+                solAmount: quote.totalSol,
+                coralSessionId: chosenPlan.coralProof.sessionId
+              }
+            ]
+          : [];
       emitMarketEvents(chosenPlan.id, chosenPlan.jobContext.repository, [
         {
           type: "FOUNDER_SELECTED_SPECIALIST",
@@ -796,7 +848,8 @@ export default function Home() {
           solAmount: quote.totalSol,
           txSignature: signature,
           walletAddress: nextPayment.vault
-        }
+        },
+        ...coralAward
       ]);
       void refreshBalance();
       return true;
@@ -969,6 +1022,39 @@ export default function Home() {
 
       setPayment(nextPayment);
       setReleaseStatus("confirmed");
+      // CoralOS settlement records, linked to the CoralOS session that awarded
+      // this specialist. Relix protocol events — CoralOS moved no money.
+      const coralSettlement: MarketEventDraft[] =
+        campaign.coordinationMode !== "local-fallback" && campaign.coralProof
+          ? [
+              {
+                type: "CORALOS_ESCROW_RELEASED",
+                message: `Founder released the escrow for the CoralOS-awarded specialist ${specialistName}: ${formatSol(
+                  payment.specialistAmountSol
+                )} to ${shortAddress(
+                  payment.specialistWallet
+                )}, ${formatSol(payment.treasuryFeeSol)} treasury fee to ${shortAddress(
+                  payment.treasuryWallet
+                )}.`,
+                agentName: specialistName,
+                explorerUrl: explorer,
+                txSignature: signature,
+                walletAddress: payment.escrowAccount,
+                solAmount: payment.settlementSol,
+                bidId: campaign.winningBid.id,
+                coralSessionId: campaign.coralProof.sessionId,
+                coralThreadId: campaign.coralProof.threadId
+              },
+              {
+                type: "CORALOS_SETTLEMENT_COMPLETE",
+                message: `Settlement complete for CoralOS session ${campaign.coralProof.sessionId}: buyer/seller coordination ran on CoralOS, funds settled on Solana devnet via Anchor escrow.`,
+                explorerUrl: explorer,
+                txSignature: signature,
+                coralSessionId: campaign.coralProof.sessionId,
+                coralThreadId: campaign.coralProof.threadId
+              }
+            ]
+          : [];
       emitMarketEvents(campaign.id, campaign.jobContext.repository, [
         {
           type: "ESCROW_RELEASED",
@@ -1006,7 +1092,8 @@ export default function Home() {
           explorerUrl: explorer,
           solAmount: payment.settlementSol,
           txSignature: signature
-        }
+        },
+        ...coralSettlement
       ]);
       setExecutedActionCount(0);
       setIsExecutingWork(true);
@@ -1373,6 +1460,7 @@ export default function Home() {
           type: "MARKETPLACE_NOTIFIED",
           message: `Marketplace notified ${nextCampaign.bids.length} seller agents — they are competing for this paid job.`
         },
+        ...coralCoordinationDrafts(nextCampaign),
         ...nextCampaign.bids.map((bid) => ({
           type: "SELLER_AGENT_BID_RECEIVED" as const,
           message: `${specialistDisplayName(bid)} (seller) bid ${formatSol(
@@ -5336,6 +5424,68 @@ function ProofRow({ label, value }: { label: string; value: string }) {
 
 function specialistDisplayName(bid: Pick<Bid, "specialistId">) {
   return getSpecialistAgent(bid.specialistId).name;
+}
+
+// CoralOS proof events for the Market Activity timeline. On a real CoralOS run
+// these record what happened over the Coral Server (runtime connect, agent
+// registration, job, and each seller bid) with the real session/thread/bid ids.
+// On a fallback run it records a single, clearly-labelled FALLBACK_USED event so
+// the timeline never implies CoralOS was used when it was not.
+function coralCoordinationDrafts(plan: CampaignPlan): MarketEventDraft[] {
+  const coral =
+    plan.coordinationMode !== "local-fallback" ? plan.coralProof : undefined;
+
+  if (!coral) {
+    return [
+      {
+        type: "CORALOS_FALLBACK_USED",
+        message:
+          "Local fallback — CoralOS was not used for this run. Bids were produced by Relix's local in-process specialists; the bids, selection, and escrow settlement are still real."
+      }
+    ];
+  }
+
+  const hosted = plan.coordinationMode === "coralos-hosted";
+  const coralBids = plan.bids.filter((bid) => coral.bidIds.includes(bid.id));
+
+  return [
+    {
+      type: "CORALOS_RUNTIME_CONNECTED",
+      message: hosted
+        ? `Connected to the hosted CoralOS backend at ${coral.serverUrl}.`
+        : `Connected to the CoralOS runtime (local Coral Server) at ${coral.serverUrl}.`,
+      coralSessionId: coral.sessionId
+    },
+    {
+      type: "CORALOS_BUYER_AGENT_REGISTERED",
+      message: `Growth Employee registered as the CoralOS buyer agent "${coral.buyerAgent}".`,
+      agentName: coral.buyerAgent,
+      coralSessionId: coral.sessionId
+    },
+    ...coral.sellerAgents.map((name) => ({
+      type: "CORALOS_SELLER_AGENT_REGISTERED" as const,
+      message: `Seller agent "${name}" registered on CoralOS and joined the market session.`,
+      agentName: name,
+      coralSessionId: coral.sessionId
+    })),
+    {
+      type: "CORALOS_MARKET_JOB_CREATED",
+      message: `Buyer posted the launch job to the CoralOS market thread and invited ${coral.sellerAgents.length} seller agents to bid.`,
+      coralSessionId: coral.sessionId,
+      coralThreadId: coral.threadId
+    },
+    ...coralBids.map((bid) => ({
+      type: "CORALOS_SELLER_BID_RECEIVED" as const,
+      message: `${specialistDisplayName(bid)} (seller) returned a ${formatSol(
+        bid.priceSol
+      )} bid over CoralOS.`,
+      agentName: specialistDisplayName(bid),
+      solAmount: bid.priceSol,
+      bidId: bid.id,
+      coralSessionId: coral.sessionId,
+      coralThreadId: coral.threadId
+    }))
+  ];
 }
 
 function seedReputationMap() {

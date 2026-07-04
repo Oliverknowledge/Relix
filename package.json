@@ -11,7 +11,11 @@
     "start": "next start",
     "lint": "eslint",
     "coralos:build": "esbuild scripts/coralos/agent.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/agent.mjs",
-    "coralos:verify": "esbuild scripts/coralos/verify-market.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/verify-market.mjs && node scripts/coralos/dist/verify-market.mjs"
+    "coralos:server:build": "esbuild scripts/coralos/server.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/coralos-server.mjs",
+    "coralos:server": "npm run coralos:build && npm run coralos:server:build && node scripts/coralos/dist/coralos-server.mjs",
+    "coralos:verify": "npm run coralos:build && esbuild scripts/coralos/test-coralos-market.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/test-coralos-market.mjs && node scripts/coralos/dist/test-coralos-market.mjs",
+    "coralos:docker:build": "docker build -f Dockerfile -t relix-coralos .",
+    "coralos:docker:test": "bash scripts/coralos/docker-test.sh"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.1.2",

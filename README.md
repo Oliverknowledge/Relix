@@ -21,6 +21,8 @@ A few things worth knowing before you judge the demo:
 
 Relix uses **CoralOS as the primary coordination layer for the agent marketplace when it is available** — the real [Coral Server](https://github.com/Coral-Protocol/coral-server) runtime, not a mock or CoralOS-style naming over local code.
 
+**CoralOS coordinates; Anchor settles.** The flow is **job/request → bid → award → escrow funded → delivery → release/refund**. CoralOS coordinates the buyer/seller agents and holds no keys and moves no money; the on-chain escrow is signed by the founder, and **founder approval (a Phantom signature) is the release gate**. The Protocol Proof panel and Market Activity timeline are Relix's run ledger for each campaign — the record of that chain, with the CoralOS session/thread/bid ids next to the escrow account, vault, and Explorer links.
+
 - The **Growth Employee is registered as a CoralOS buyer agent** (`relix-buyer`). The three **built-in specialists are registered as CoralOS seller agents** (`relix-seller-tournament`, `relix-seller-referral`, `relix-seller-community`). Their definitions live in `~/.coral/agents/*/coral-agent.toml`; the shared agent program is `scripts/coralos/agent.ts` (bundled to `scripts/coralos/dist/agent.mjs`).
 - For a launch, Relix's server (`app/lib/coralos/`) creates a Coral session, and the Coral Server **launches every agent process**. The buyer posts a launch job over the Coral market protocol; each seller connects back over MCP-SSE, computes its **real Relix bid** (the exact same specialist logic the app uses), and returns it; the buyer collects the bids. Relix feeds those CoralOS bids into its existing selection/scoring/delivery flow and awards one.
 - The coordination is real MCP: `coral_create_thread`, `coral_send_message`, `coral_wait_for_agent`, etc. Every CoralOS run's real **session id, thread id, and bid ids** are shown in the **Protocol Proof panel** in the app, next to the escrow details.
@@ -32,6 +34,12 @@ Relix uses **CoralOS as the primary coordination layer for the agent marketplace
 - **Agent-signed reward/prize payouts** remain a separate flow (`RELIX_AGENT_TREASURY_SECRET`), unrelated to both CoralOS and founder escrow.
 - All CoralOS seller agents are Relix's own built-in specialists — Relix does **not** claim remote, autonomous third-party agents.
 
+**Coordination modes (all gated, always fall through — the panel/timeline label which one ran):**
+
+1. **Hosted CoralOS** — set `CORAL_MARKET_URL` + `RELIX_MARKET_TOKEN`; Vercel calls a long-running backend that runs the round (see [docs/HOSTED_CORALOS.md](docs/HOSTED_CORALOS.md)). Panel: "Hosted CoralOS backend active."
+2. **Local CoralOS** — set `RELIX_CORALOS_ENABLED=1` + `CORAL_API_KEY` on a Java-capable host; the local Coral Server runs the round. Panel: "CoralOS path active — local runtime."
+3. **Local fallback** — nothing configured, or a higher mode fails/times out; Relix bids in-process. Panel: "Local fallback active — CoralOS was not used for this run." Escrow settlement is real in every mode.
+
 **Local vs. Vercel.** The CoralOS path needs the JVM Coral Server plus the launched agent processes, so it runs on a **Java-capable local/VM host**, not on Vercel's serverless runtime. When CoralOS is unavailable (missing runtime/env, or running on Vercel), Relix falls back to **local in-process bidding**, and this is shown plainly: the Protocol Proof panel reads **"Coordination mode: Local fallback — CoralOS was not used for this run."** The fallback exists only for development/demo reliability; the bids, selection, and escrow settlement it produces are still real.
 
 ### Running the CoralOS path (local)
@@ -39,6 +47,10 @@ Relix uses **CoralOS as the primary coordination layer for the agent marketplace
 1. Install **Java 24+** (e.g. `brew install openjdk`) — required by the Coral Server.
 2. Run `npm run coralos:build`, copy the Relix agent folders from `scripts/coralos/agents/` into `~/.coral/agents/`, and set `registry.localAgents` in the Coral Server config to scan those folders (see that folder's README and example config).
 3. Set the CoralOS env vars (below) and start the app. Verify a full market round with `npm run coralos:verify`.
+
+**Full judge runbook:** see [docs/DEMO.md](docs/DEMO.md) for the complete local demo (start Coral Server, register agents, verify, run Relix, and confirm the Protocol Proof panel shows the CoralOS session/thread/bid ids next to the escrow account/vault/Explorer links).
+
+**Optional hosted backend:** CoralOS can also run on a long-running backend (Docker) so a Vercel deploy can use it instead of the local fallback — see [docs/HOSTED_CORALOS.md](docs/HOSTED_CORALOS.md). This is fully gated (`CORAL_MARKET_URL` + `RELIX_MARKET_TOKEN`): unset ⇒ local fallback; hosted failure ⇒ automatic fallback. The panel then reads "Hosted CoralOS backend active." Settlement stays on Anchor/Solana regardless.
 
 ## What The MVP Proves
 

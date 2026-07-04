@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+.env
+.env*.local
+data
+target
+scripts/coralos/dist
+**/*.tsbuildinfo
+.claude
+tests

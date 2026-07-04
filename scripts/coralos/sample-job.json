@@ -1,0 +1,22 @@
+{
+  "jobContext": {
+    "analyticsAudience": true,
+    "analyticsConnected": true,
+    "analyticsSummary": "1,200 sessions in the last 28 days, mostly from launch posts.",
+    "budgetSol": 8,
+    "commitMessages": ["Add squad drafting", "Ship onchain unit trades"],
+    "daysRemaining": 12,
+    "goal": "Get 500 waitlist signups.",
+    "jobId": "docker-smoke-job",
+    "launchChange": "Add squad drafting with tradable onchain units",
+    "productArea": "onboarding",
+    "productName": "Shardbound Blitz",
+    "repoSummary": "A fast, mobile-first strategy battler.",
+    "repository": "acme/shardbound",
+    "supportingChange": "Ship onchain unit trades",
+    "websiteCta": "Join the waitlist",
+    "websitePromise": "Build a squad, battle in minutes",
+    "websiteRead": true,
+    "websiteSummary": "The website promises \"Build a squad, battle in minutes\" for mobile strategy players."
+  }
+}

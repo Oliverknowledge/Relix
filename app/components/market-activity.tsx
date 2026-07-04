@@ -119,6 +119,30 @@ export function MarketActivityTimeline({ events }: { events: MarketEvent[] }) {
                         </span>
                       </span>
                     ) : null}
+                    {event.coralSessionId ? (
+                      <span>
+                        CoralOS session:{" "}
+                        <span className="font-mono text-[#52525b]">
+                          {shortWallet(event.coralSessionId)}
+                        </span>
+                      </span>
+                    ) : null}
+                    {event.coralThreadId ? (
+                      <span>
+                        CoralOS thread:{" "}
+                        <span className="font-mono text-[#52525b]">
+                          {shortWallet(event.coralThreadId)}
+                        </span>
+                      </span>
+                    ) : null}
+                    {event.bidId ? (
+                      <span>
+                        Bid:{" "}
+                        <span className="font-mono text-[#52525b]">
+                          {event.bidId}
+                        </span>
+                      </span>
+                    ) : null}
                     {typeof event.solAmount === "number" ? (
                       <span>
                         Amount:{" "}
@@ -170,7 +194,10 @@ function hasMeta(event: MarketEvent): boolean {
       typeof event.solAmount === "number" ||
       event.walletAddress ||
       event.txSignature ||
-      event.explorerUrl
+      event.explorerUrl ||
+      event.bidId ||
+      event.coralSessionId ||
+      event.coralThreadId
   );
 }
 

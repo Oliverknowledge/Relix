@@ -1,0 +1,23 @@
+edition = 4
+
+[agent]
+name = "relix-buyer"
+version = "0.1.0"
+description = "Relix Growth Employee, the buyer agent that posts launch jobs and awards bids in the CoralOS market."
+summary = "Relix buyer agent"
+readme = "Relix Growth Employee buyer agent. Posts a launch job to the CoralOS market, collects specialist bids, and records the result."
+
+[agent.license]
+type = "text"
+text = "Proprietary — Relix hackathon MVP."
+
+# Container-absolute paths (see Dockerfile): node on PATH, the built agent
+# bundle, and the shared /data directory.
+[runtimes.executable]
+transport = "sse"
+path = "/usr/bin/node"
+arguments = [
+  "/opt/relix/agents/agent.mjs",
+  "buyer",
+  "--data-dir=/data"
+]

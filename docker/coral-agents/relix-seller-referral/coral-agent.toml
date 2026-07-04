@@ -1,0 +1,22 @@
+edition = 4
+
+[agent]
+name = "relix-seller-referral"
+version = "0.1.0"
+description = "Relix Referral Specialist, a seller agent that bids invite loops on the CoralOS market."
+summary = "Relix Referral Specialist seller agent"
+readme = "Relix Referral Specialist. Receives a launch job from the CoralOS market and submits its real Relix bid."
+
+[agent.license]
+type = "text"
+text = "Proprietary — Relix hackathon MVP."
+
+[runtimes.executable]
+transport = "sse"
+path = "/usr/bin/node"
+arguments = [
+  "/opt/relix/agents/agent.mjs",
+  "seller",
+  "referral",
+  "--data-dir=/data"
+]

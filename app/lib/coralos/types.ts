@@ -2,7 +2,10 @@ import type { Bid, SpecialistJobContext } from "@/app/lib/specialist-agents";
 
 // How this campaign's buyer/seller coordination was actually performed. Surfaced
 // to the UI so the Protocol Proof panel can state the truth for each run.
-export type CoordinationMode = "coralos" | "local-fallback";
+//   "coralos"        — local Coral Server runtime (dev/VM host)
+//   "coralos-hosted" — remote hosted CoralOS backend (Vercel -> backend /market)
+//   "local-fallback" — CoralOS not used; local in-process bidding
+export type CoordinationMode = "coralos" | "coralos-hosted" | "local-fallback";
 
 // A collected bid plus which CoralOS seller agent produced it.
 export type CoralCollectedBid = {

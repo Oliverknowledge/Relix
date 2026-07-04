@@ -68,7 +68,10 @@ export function sanitizeMarketEvent(value: unknown): MarketEvent | null {
   return {
     actor: normalizeActor(record.actor),
     agentName: optionalString(record.agentName),
+    bidId: optionalString(record.bidId),
     campaignId: record.campaignId,
+    coralSessionId: optionalString(record.coralSessionId),
+    coralThreadId: optionalString(record.coralThreadId),
     createdAt: record.createdAt,
     explorerUrl: optionalString(record.explorerUrl),
     id: record.id,

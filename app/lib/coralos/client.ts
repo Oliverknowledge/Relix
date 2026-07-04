@@ -41,11 +41,12 @@ async function coralFetch(config: CoralConfig, apiPath: string, body: unknown) {
 }
 
 function graphAgent(ref: { registryName: string; version: string; graphName: string }) {
+  // Note: do NOT add a `proxies` key here — the Coral Server's SessionRequest
+  // deserializer rejects it as an unknown key on GraphAgentRequest and 500s.
   return {
     id: { name: ref.registryName, version: ref.version, registrySourceId: { type: "local" } },
     name: ref.graphName,
-    provider: { type: "local", runtime: "executable" },
-    proxies: {}
+    provider: { type: "local", runtime: "executable" }
   };
 }
 

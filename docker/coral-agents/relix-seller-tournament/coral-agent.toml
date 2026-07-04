@@ -1,0 +1,22 @@
+edition = 4
+
+[agent]
+name = "relix-seller-tournament"
+version = "0.1.0"
+description = "Relix Tournament Specialist, a seller agent that bids launch tournaments on the CoralOS market."
+summary = "Relix Tournament Specialist seller agent"
+readme = "Relix Tournament Specialist. Receives a launch job from the CoralOS market and submits its real Relix bid."
+
+[agent.license]
+type = "text"
+text = "Proprietary — Relix hackathon MVP."
+
+[runtimes.executable]
+transport = "sse"
+path = "/usr/bin/node"
+arguments = [
+  "/opt/relix/agents/agent.mjs",
+  "seller",
+  "tournament",
+  "--data-dir=/data"
+]

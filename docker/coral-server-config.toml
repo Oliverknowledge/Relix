@@ -1,0 +1,8 @@
+# Coral Server config for the hosted backend container.
+# The auth key is injected at start time from the CORAL_API_KEY env var
+# (start.sh replaces __CORAL_API_KEY__), so no secret is baked into the image.
+# The registry auto-includes agents under /root/.coral/agents (copied by the
+# Dockerfile), so no explicit registry config is needed here.
+
+[auth]
+keys = ["__CORAL_API_KEY__"]
