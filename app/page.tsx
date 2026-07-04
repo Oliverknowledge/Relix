@@ -18,7 +18,9 @@ import {
   useRef,
   useState
 } from "react";
+import { RewardLadderCard } from "@/app/components/reward-ladder";
 import { AgentProfileModal } from "@/app/components/specialist-ui";
+import { hasRewardLadder } from "@/app/lib/reward-ladder";
 import {
   createCampaignPlan,
   defaultFounderRequest,
@@ -1569,6 +1571,8 @@ export default function Home() {
           deliveryRating={deliveryRating}
           editingAssetId={editingAssetId}
           error={releaseError}
+          founderWallet={publicKey ? publicKey.toBase58() : null}
+          onRewardPaid={refreshBalance}
           isExecutingWork={isExecutingWork}
           isPlanningNext={isPlanningNext}
           isRatingDelivery={isRatingDelivery}
@@ -1913,6 +1917,7 @@ function GuidedResultFlow({
   deliveryRating,
   editingAssetId,
   error,
+  founderWallet,
   isExecutingWork,
   isPlanningNext,
   isRatingDelivery,
@@ -1930,6 +1935,7 @@ function GuidedResultFlow({
   onPublishNow,
   onRate,
   onRelease,
+  onRewardPaid,
   onRunNext,
   onRetryPost,
   onSaveDrafts,
@@ -1966,6 +1972,7 @@ function GuidedResultFlow({
   deliveryRating: number | null;
   editingAssetId: string | null;
   error: string | null;
+  founderWallet: string | null;
   isExecutingWork: boolean;
   isPlanningNext: boolean;
   isRatingDelivery: boolean;
@@ -1988,6 +1995,7 @@ function GuidedResultFlow({
   onOpenProfile: (id: SpecialistId) => void;
   onRate: (rating: number) => Promise<void>;
   onRelease: () => Promise<void>;
+  onRewardPaid: () => void;
   onRunNext: () => void;
   onRetryPost: (postId: string) => Promise<void>;
   onSaveDrafts: () => Promise<void>;
@@ -2095,10 +2103,12 @@ function GuidedResultFlow({
             copiedAssetId={copiedAssetId}
             delivery={delivery}
             editingAssetId={editingAssetId}
+            founderWallet={founderWallet}
             isSavingDrafts={isSavingDrafts}
             isScheduling={isScheduling}
             manualPublishedAssetIds={manualPublishedAssetIds}
             onCancelPost={onCancelPost}
+            onRewardPaid={onRewardPaid}
             onCopyAsset={onCopyAsset}
             onEditAsset={onEditAsset}
             onMarkPublishedManual={onMarkPublishedManual}
@@ -2851,6 +2861,7 @@ function SpecialistDeliverySection({
   copiedAssetId,
   delivery,
   editingAssetId,
+  founderWallet,
   isSavingDrafts,
   isScheduling,
   manualPublishedAssetIds,
@@ -2858,6 +2869,7 @@ function SpecialistDeliverySection({
   onCopyAsset,
   onEditAsset,
   onMarkPublishedManual,
+  onRewardPaid,
   onPublishNow,
   onRetryPost,
   onSaveDrafts,
@@ -2878,6 +2890,7 @@ function SpecialistDeliverySection({
   copiedAssetId: string | null;
   delivery: SpecialistDelivery;
   editingAssetId: string | null;
+  founderWallet: string | null;
   isSavingDrafts: boolean;
   isScheduling: boolean;
   manualPublishedAssetIds: string[];
@@ -2885,6 +2898,7 @@ function SpecialistDeliverySection({
   onCopyAsset: (id: string, text: string) => Promise<void>;
   onEditAsset: (id: string | null) => void;
   onMarkPublishedManual: (sourceId: string) => void;
+  onRewardPaid: () => void;
   onPublishNow: (input: {
     label?: string;
     postId?: string;
@@ -2910,6 +2924,8 @@ function SpecialistDeliverySection({
   xStatus: XConnectionStatus;
 }) {
   const blocks = deliveryBlocksFrom(delivery);
+  const winnerAgent = getSpecialistAgent(campaign.winningBid.specialistId);
+  const showRewardLadder = hasRewardLadder(winnerAgent?.capabilities ?? []);
   const hasLaunchThread = blocks.some(
     (block) => block.section === "Launch Thread"
   );
@@ -2935,6 +2951,17 @@ function SpecialistDeliverySection({
             Source: {assets.repository}. {assets.sourceSummary}
           </p>
         </div>
+
+        {showRewardLadder ? (
+          <RewardLadderCard
+            campaignId={campaign.id}
+            founderWallet={founderWallet}
+            onRewardPaid={onRewardPaid}
+            repository={assets.repository}
+            specialistId={campaign.winningBid.specialistId}
+            specialistName={specialistDisplayName(campaign.winningBid)}
+          />
+        ) : null}
 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>

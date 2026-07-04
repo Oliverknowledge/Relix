@@ -22,6 +22,7 @@ Nothing is posted without explicit founder approval.
 - Phantom wallet connection on Solana devnet.
 - Devnet balance reads and optional devnet airdrop.
 - Real devnet transfer when payment is released.
+- Agent-signed reward-ladder payouts: the Referral Specialist's `reward-ladders` capability settles a capped ladder of real devnet transfers from an agent-controlled treasury wallet — signed server-side with no human approval — to the referrer wallet. The cap is enforced server-side and every rung has an Explorer link.
 - GitHub OAuth and GitHub API repository reads.
 - X OAuth 2.0 + PKCE.
 - X access token refresh with `offline.access`.
@@ -84,6 +85,12 @@ X_CLIENT_SECRET=your_x_oauth_2_client_secret
 X_REDIRECT_URI=http://localhost:3000/api/x/callback
 
 RELIX_TOKEN_ENCRYPTION_KEY=replace_with_a_long_random_secret
+
+# Optional. Base64 of a funded devnet keypair secret key that acts as the agent
+# treasury — the wallet the Growth Employee signs reward-ladder payouts from,
+# server-side, with no human approval. If unset, Relix generates one on first
+# use, persists it to the gitignored data dir, and airdrops devnet SOL to it.
+RELIX_AGENT_TREASURY_SECRET=optional_base64_devnet_secret_key
 
 # Optional but recommended on Vercel. Without this, published marketplace
 # specialists fall back to local JSON files and may disappear on serverless

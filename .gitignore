@@ -14,6 +14,8 @@ data/x-accounts.json
 data/x-posts.json
 data/specialist-reputation.json
 data/published-specialists.json
+data/reward-ladder.json
+data/agent-treasury.json
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
