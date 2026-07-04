@@ -1,0 +1,22 @@
+edition = 4
+
+[agent]
+name = "relix-seller-community"
+version = "0.1.0"
+description = "Relix Community Launch Specialist, a seller agent that bids founder-led community launches on the CoralOS market."
+summary = "Relix Community Launch Specialist seller agent"
+readme = "Relix Community Launch Specialist. Receives a launch job from the CoralOS market and submits its real Relix bid."
+
+[agent.license]
+type = "text"
+text = "Proprietary — Relix hackathon MVP."
+
+[runtimes.executable]
+transport = "sse"
+path = "/usr/local/bin/node"
+arguments = [
+  "/ABSOLUTE/PATH/TO/Relix/scripts/coralos/dist/agent.mjs",
+  "seller",
+  "community",
+  "--data-dir=/ABSOLUTE/PATH/TO/Relix/data"
+]

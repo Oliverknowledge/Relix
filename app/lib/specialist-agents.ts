@@ -137,7 +137,7 @@ const tournamentAgent: SpecialistAgent = {
   description:
     "Runs launch tournaments that turn a fresh product change into a time-boxed competitive moment with a hard deadline.",
   monthlyEarnings: [0.9, 1.4, 1.6, 1.5, 1.6, 1.4],
-  recentClients: ["Snowball", "MagicBlock", "Drift"]
+  recentClients: ["Nimbus", "Fernwood", "Tidepool"]
 };
 
 const referralAgent: SpecialistAgent = {
@@ -163,7 +163,7 @@ const referralAgent: SpecialistAgent = {
   description:
     "Designs capped invite loops with abuse checks that compound a seed audience into steady signups.",
   monthlyEarnings: [0, 0, 0.5, 0.9, 1.0, 0.7],
-  recentClients: ["Loopline", "Drift"]
+  recentClients: ["Loopline", "Bramble"]
 };
 
 const communityAgent: SpecialistAgent = {
@@ -189,7 +189,7 @@ const communityAgent: SpecialistAgent = {
   description:
     "Writes calm, founder-led community launches that build trust without hype or invented claims.",
   monthlyEarnings: [0, 0, 0, 0.8, 1.8, 1.8],
-  recentClients: ["Hearthside", "MagicBlock", "Quiethold"]
+  recentClients: ["Hearthside", "Cindermark", "Quiethold"]
 };
 
 export const tournamentSpecialist: SpecialistAgentAdapter = {

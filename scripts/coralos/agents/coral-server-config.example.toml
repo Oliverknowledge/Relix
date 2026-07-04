@@ -1,0 +1,14 @@
+# Example Coral Server config for the Relix local demo.
+# Start the server with: CONFIG_FILE_PATH=coral-server-config.toml java -jar coral-server.jar
+# The auth key here must match CORAL_API_KEY in the Relix app's .env.local.
+
+[auth]
+keys = ["relix-dev-key"]
+
+# Point Coral Server at the local Relix agent registry. Replace $HOME with an
+# absolute path because TOML glob expansion does not expand shell variables.
+[registry]
+localAgents = [
+  "/Users/YOU/.coral/agents/*"
+]
+watchLocalAgents = true

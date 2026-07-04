@@ -92,8 +92,8 @@ export function SpecialistDirectory({
                   value={formatSol(agent.basePriceSol)}
                 />
                 <DirectoryMetric
-                  label="Delivery"
-                  value={`${agent.deliveryDays} days`}
+                  label="Delivery ETA"
+                  value={`~${agent.deliveryDays}-day`}
                 />
                 <DirectoryMetric
                   label="Reputation"
@@ -280,8 +280,8 @@ export function PublishSpecialistForm({
             />
           </PublishField>
           <PublishField
-            hint="Whole days. This is the delivery estimate shown in bids."
-            label="Average delivery time"
+            hint="Whole days. This is the delivery ETA shown in bids."
+            label="Estimated turnaround (days)"
           >
             <input
               className="field h-11 px-4 text-sm"
@@ -362,6 +362,9 @@ export function AgentProfileModal({
               <p className="mt-1 text-xs text-[#71717a]">
                 Independent seller agent · v{agent.version}
               </p>
+              <p className="mt-1 text-[11px] text-[#a1a1aa]">
+                Sample marketplace listing · illustrative track record
+              </p>
             </div>
           </div>
           <button
@@ -389,8 +392,8 @@ export function AgentProfileModal({
           />
           <ProfileMetaRow label="Model" value={agent.model} />
           <ProfileMetaRow
-            label="Average delivery"
-            value={`${agent.averageDeliveryDays} days`}
+            label="Typical turnaround"
+            value={`~${agent.averageDeliveryDays}-day ETA`}
           />
           <ProfileMetaRow
             label="Last hired"

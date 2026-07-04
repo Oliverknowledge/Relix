@@ -5,9 +5,7 @@ import {
   useWallet
 } from "@solana/wallet-adapter-react";
 import {
-  LAMPORTS_PER_SOL,
-  SystemProgram,
-  Transaction
+  LAMPORTS_PER_SOL
 } from "@solana/web3.js";
 import {
   type Dispatch,
@@ -19,6 +17,7 @@ import {
   useState
 } from "react";
 import { MarketActivityTimeline } from "@/app/components/market-activity";
+import { ProtocolProofPanel } from "@/app/components/protocol-proof";
 import { PrizePayoutCard } from "@/app/components/prize-payout";
 import { RewardLadderCard } from "@/app/components/reward-ladder";
 import { AgentProfileModal } from "@/app/components/specialist-ui";
@@ -71,10 +70,19 @@ import {
 import type { RepositoryAnalysis } from "@/app/lib/repository-analysis";
 import { analyzeRepository } from "@/app/lib/repository-analysis";
 import {
-  explorerUrl,
-  parseSolanaAddress,
-  settlementAmountFor
-} from "@/app/lib/wallet";
+  escrowDeadlinePassed,
+  escrowQuoteFor,
+  formatEscrowDeadline,
+  getRelixEscrowConfig,
+  buildInitializeEscrowTransaction,
+  buildRefundEscrowTransaction,
+  buildReleaseEscrowTransaction,
+  simulateEscrowTransaction,
+  transactionExplorer,
+  type EscrowQuote,
+  type RelixEscrowConfig
+} from "@/app/lib/relix-escrow";
+import { parseSolanaAddress } from "@/app/lib/wallet";
 import type { WebsiteAnalysis } from "@/app/lib/website-analysis";
 import type {
   ScheduledXPost,
@@ -95,7 +103,13 @@ const scrollToElement = (element: HTMLElement | null, behavior: ScrollBehavior) 
   window.scrollTo({ top, behavior });
 };
 
-type ReleaseStatus = "idle" | "signing" | "confirming" | "confirmed";
+type ReleaseStatus =
+  | "idle"
+  | "locking"
+  | "signing"
+  | "confirming"
+  | "confirmed"
+  | "refunding";
 
 type NextStepPlan = {
   assessment: string;
@@ -218,7 +232,7 @@ const setupSteps = [
   },
   {
     title: "Approve and it runs",
-    detail: "Pay on Solana after delivery; it reports until the goal is met."
+    detail: "Lock SOL in escrow, release after delivery, then track results."
   }
 ];
 
@@ -311,6 +325,7 @@ export default function Home() {
   const [isRatingDelivery, setIsRatingDelivery] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const escrowConfig = getRelixEscrowConfig();
 
   const refreshToolStatuses = useCallback(async () => {
     setStatusLoading(true);
@@ -620,9 +635,225 @@ export default function Home() {
     }
   };
 
+  // Locks founder funds in the Anchor escrow vault only. It must not read or
+  // set delivery state — the specialist's work is generated afterward, once
+  // escrow is confirmed, so the visible timeline never claims a delivery that
+  // hasn't happened yet.
+  const lockFundsInEscrow = async (chosenPlan: CampaignPlan): Promise<boolean> => {
+    if (!publicKey || !connected) {
+      setReleaseError("Connect Phantom on devnet to lock funds in escrow.");
+      return false;
+    }
+
+    if (payment && payment.status !== "refunded") {
+      setReleaseError("This campaign already has an escrow account.");
+      setActiveStage(payment.status === "released" ? "complete" : "delivery");
+      return false;
+    }
+
+    if (!escrowConfig.ok) {
+      setReleaseError(escrowConfig.error);
+      return false;
+    }
+
+    if (chosenPlan.budgetStatus.blocked) {
+      setReleaseError(chosenPlan.budgetStatus.message);
+      return false;
+    }
+
+    const chosenBid = chosenPlan.winningBid;
+    const winnerAgent = getSpecialistAgent(chosenBid.specialistId);
+    const specialistWallet = parseSolanaAddress(winnerAgent.ownerWallet);
+
+    if (!specialistWallet) {
+      setReleaseError(
+        `${winnerAgent.name} lists an invalid Solana owner wallet, so escrow cannot be initialized. The owner needs to republish the agent with a valid address.`
+      );
+      return false;
+    }
+
+    const quote = escrowQuoteFor({
+      deadline: chosenPlan.request.deadline,
+      feeBps: escrowConfig.feeBps,
+      totalSol: chosenBid.priceSol
+    });
+
+    if (quote.totalLamports <= 0 || quote.specialistAmountLamports <= 0) {
+      setReleaseError("Escrow amount must be greater than zero after fees.");
+      return false;
+    }
+
+    setChoosingBidId(chosenBid.id);
+    setReleaseError(null);
+    setReleaseStatus("locking");
+
+    try {
+      const currentLamports = await connection.getBalance(publicKey, "confirmed");
+      const currentBalanceSol = currentLamports / LAMPORTS_PER_SOL;
+
+      setBalanceSol(currentBalanceSol);
+
+      if (currentLamports < quote.totalLamports) {
+        setReleaseStatus("idle");
+        setReleaseError(
+          `Insufficient devnet SOL. Escrow lock requires ${formatSol(
+            quote.totalSol
+          )}, and the connected wallet has ${formatSol(currentBalanceSol)}.`
+        );
+        return false;
+      }
+
+      const built = await buildInitializeEscrowTransaction({
+        connection,
+        deadlineUnix: quote.deadlineUnix,
+        feeBps: quote.feeBps,
+        founder: publicKey,
+        jobId: chosenPlan.id,
+        programId: escrowConfig.programId,
+        specialist: specialistWallet,
+        totalLamports: quote.totalLamports,
+        treasury: escrowConfig.treasuryWallet
+      });
+
+      await simulateEscrowTransaction(connection, built.transaction);
+
+      const signature = await sendTransaction(built.transaction, connection, {
+        preflightCommitment: "confirmed"
+      });
+
+      setReleaseStatus("confirming");
+
+      await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: built.latestBlockhash.blockhash,
+          lastValidBlockHeight: built.latestBlockhash.lastValidBlockHeight
+        },
+        "confirmed"
+      );
+
+      const slot = await connection.getSlot("confirmed");
+      const explorer = transactionExplorer(signature);
+      const nextPayment: PaymentResult = {
+        agentWallet: winnerAgent.ownerWallet,
+        campaignId: chosenPlan.id,
+        contractAmountSol: chosenBid.priceSol,
+        deadlineUnix: quote.deadlineUnix,
+        escrowAccount: built.escrow.publicKey.toBase58(),
+        explorerUrl: explorer,
+        feeBps: quote.feeBps,
+        founderWallet: publicKey.toBase58(),
+        initializeExplorerUrl: explorer,
+        initializeSignature: signature,
+        mode: "anchor-escrow",
+        ok: true,
+        settlementSol: quote.totalSol,
+        signature,
+        slot,
+        specialistAmountSol: quote.specialistAmountSol,
+        specialistWallet: winnerAgent.ownerWallet,
+        status: "locked",
+        treasuryFeeSol: quote.treasuryFeeSol,
+        treasuryWallet: escrowConfig.treasuryWallet.toBase58(),
+        vault: built.vault.toBase58(),
+        winnerAgent: winnerAgent.name
+      };
+      const isOverride = chosenBid.id !== chosenPlan.recommendedBidId;
+      const name = specialistDisplayName(chosenBid);
+
+      lastSelectedBidRef.current = chosenBid.id;
+      setCampaign(chosenPlan);
+      setPayment(nextPayment);
+      setReleaseStatus("idle");
+      emitMarketEvents(chosenPlan.id, chosenPlan.jobContext.repository, [
+        {
+          type: "FOUNDER_SELECTED_SPECIALIST",
+          message: `Founder chose ${name} ${
+            isOverride
+              ? "(override of the Growth Employee's recommendation)"
+              : "(the recommended specialist)"
+          } and initialized escrow for ${formatSol(quote.totalSol)}.`,
+          agentName: name,
+          walletAddress: winnerAgent.ownerWallet,
+          solAmount: quote.totalSol
+        },
+        {
+          type: "ESCROW_CREATED",
+          message: `Escrow account ${shortAddress(
+            nextPayment.escrowAccount
+          )} created for campaign ${chosenPlan.id}.`,
+          explorerUrl: explorer,
+          solAmount: quote.totalSol,
+          txSignature: signature,
+          walletAddress: nextPayment.escrowAccount
+        },
+        {
+          type: "FUNDS_LOCKED",
+          message: `${formatSol(
+            quote.totalSol
+          )} locked in vault ${shortAddress(nextPayment.vault)}.`,
+          explorerUrl: explorer,
+          solAmount: quote.totalSol,
+          txSignature: signature,
+          walletAddress: nextPayment.vault
+        }
+      ]);
+      void refreshBalance();
+      return true;
+    } catch (error) {
+      setReleaseStatus("idle");
+      setReleaseError(
+        error instanceof Error ? error.message : "Escrow initialization failed."
+      );
+      return false;
+    } finally {
+      setChoosingBidId(null);
+    }
+  };
+
+  // Puts the specialist's delivered assets in front of the founder and marks
+  // the delivery as received on the visible timeline. Only called after
+  // lockFundsInEscrow has confirmed the escrow lock on-chain, so this event
+  // never fires ahead of the funds actually being locked.
+  const receiveSpecialistDelivery = (
+    chosenPlan: CampaignPlan,
+    nextDelivery: SpecialistDelivery
+  ) => {
+    const chosenBid = chosenPlan.winningBid;
+    const winnerAgent = getSpecialistAgent(chosenBid.specialistId);
+    const name = specialistDisplayName(chosenBid);
+
+    setSpecialistDelivery(nextDelivery);
+    setXDrafts(draftsFromDelivery(nextDelivery));
+
+    if (campaignAssets && githubContext) {
+      setGrowthWork(
+        createGrowthEmployeeWork({
+          assets: campaignAssets,
+          campaign: chosenPlan,
+          github: githubContext,
+          specialistName: name
+        })
+      );
+    }
+
+    setActiveStage("delivery");
+    emitMarketEvents(chosenPlan.id, chosenPlan.jobContext.repository, [
+      {
+        type: "SPECIALIST_DELIVERY_RECEIVED",
+        message: `${name} (seller) delivered the launch assets after escrow funding.`,
+        agentName: name,
+        walletAddress: winnerAgent.ownerWallet
+      }
+    ]);
+    window.setTimeout(() => {
+      scrollToElement(resultsRef.current, "smooth");
+    }, 100);
+  };
+
   // The Growth Employee only recommends a specialist; the founder makes the
-  // final hire here. Choosing a different specialist re-points the plan and
-  // regenerates the delivery for the specialist actually hired.
+  // final hire here. Escrow is locked first — the specialist's delivery is
+  // only generated and shown once that lock is confirmed on-chain.
   const chooseSpecialist = async (bidId: string) => {
     if (!campaign || choosingBidId) {
       return;
@@ -630,79 +861,23 @@ export default function Home() {
 
     const chosenPlan = chooseBidForPlan(campaign, bidId);
     const chosenBid = chosenPlan.winningBid;
-
-    // Records the founder's hire on the timeline. Guarded so re-clicking the
-    // same specialist does not duplicate events; changing the choice re-emits.
-    const emitSelection = () => {
-      if (lastSelectedBidRef.current === chosenBid.id) {
-        return;
-      }
-      lastSelectedBidRef.current = chosenBid.id;
-
-      const agent = getSpecialistAgent(chosenBid.specialistId);
-      const isOverride = chosenBid.id !== chosenPlan.recommendedBidId;
-      const name = specialistDisplayName(chosenBid);
-
-      emitMarketEvents(chosenPlan.id, chosenPlan.jobContext.repository, [
-        {
-          type: "FOUNDER_SELECTED_SPECIALIST",
-          message: `Founder hired ${name} ${
-            isOverride
-              ? "(override of the Growth Employee's recommendation)"
-              : "(the recommended specialist)"
-          } at ${formatSol(chosenBid.priceSol)}.`,
-          agentName: name,
-          walletAddress: agent?.ownerWallet,
-          solAmount: chosenBid.priceSol
-        },
-        {
-          type: "SPECIALIST_DELIVERY_RECEIVED",
-          message: `${name} (seller) delivered the launch assets for founder review.`,
-          agentName: name
-        },
-        {
-          type: "CAMPAIGN_ACTIVE",
-          message: `Campaign active — ${name} hired for ${formatSol(
-            chosenBid.priceSol
-          )}. Payment/escrow is the next step.`,
-          agentName: name,
-          solAmount: chosenBid.priceSol
-        }
-      ]);
-    };
-
-    // Accepting the recommendation: delivery already exists from the run.
-    if (chosenBid.id === campaign.winningBid.id) {
-      emitSelection();
-      setActiveStage("delivery");
-      return;
-    }
+    const existingDelivery: SpecialistDelivery | null =
+      chosenBid.id === campaign.winningBid.id ? specialistDelivery : null;
 
     setChoosingBidId(bidId);
 
     try {
-      const nextDelivery = await deliverCampaign(
-        chosenBid.specialistId,
-        chosenPlan.jobContext
-      );
+      const locked = await lockFundsInEscrow(chosenPlan);
 
-      setCampaign(chosenPlan);
-      setSpecialistDelivery(nextDelivery);
-      setXDrafts(draftsFromDelivery(nextDelivery));
-
-      if (campaignAssets && githubContext) {
-        setGrowthWork(
-          createGrowthEmployeeWork({
-            assets: campaignAssets,
-            campaign: chosenPlan,
-            github: githubContext,
-            specialistName: specialistDisplayName(chosenBid)
-          })
-        );
+      if (!locked) {
+        return;
       }
 
-      emitSelection();
-      setActiveStage("delivery");
+      const nextDelivery =
+        existingDelivery ??
+        (await deliverCampaign(chosenBid.specialistId, chosenPlan.jobContext));
+
+      receiveSpecialistDelivery(chosenPlan, nextDelivery);
     } catch {
       setIntegrationError(
         "Could not prepare the delivery for that specialist. Try again."
@@ -712,32 +887,39 @@ export default function Home() {
     }
   };
 
-  const releasePayment = async () => {
-    if (!campaign) {
+  const releaseEscrow = async () => {
+    if (!campaign || !payment) {
       return;
     }
 
     if (!publicKey || !connected) {
-      setReleaseError("Connect a devnet wallet to release payment.");
+      setReleaseError("Connect the founder Phantom wallet to release escrow.");
       setActiveStage("payment");
       return;
     }
 
-    const winningBid = campaign.winningBid;
-    const winnerAgent = getSpecialistAgent(winningBid.specialistId);
-    const settlementSol = settlementAmountFor(winningBid.priceSol);
-    const settlementLamports = Math.round(settlementSol * LAMPORTS_PER_SOL);
-    const ownerWalletKey = parseSolanaAddress(winnerAgent.ownerWallet);
-
-    if (campaign.budgetStatus.blocked) {
-      setReleaseError(campaign.budgetStatus.message);
+    if (payment.status !== "locked") {
+      setReleaseError(`Escrow is already ${payment.status}.`);
       return;
     }
 
-    if (!ownerWalletKey) {
-      setReleaseError(
-        `${winnerAgent.name} lists an invalid Solana owner wallet, so payment cannot be released. The owner needs to republish the agent with a valid address.`
-      );
+    if (payment.founderWallet !== publicKey.toBase58()) {
+      setReleaseError("Only the founder wallet that initialized escrow can release it.");
+      return;
+    }
+
+    if (!escrowConfig.ok) {
+      setReleaseError(escrowConfig.error);
+      return;
+    }
+
+    const escrow = parseSolanaAddress(payment.escrowAccount);
+    const vault = parseSolanaAddress(payment.vault);
+    const specialist = parseSolanaAddress(payment.specialistWallet);
+    const treasury = parseSolanaAddress(payment.treasuryWallet);
+
+    if (!escrow || !vault || !specialist || !treasury) {
+      setReleaseError("Stored escrow account data is invalid. Reinitialize escrow.");
       return;
     }
 
@@ -745,34 +927,19 @@ export default function Home() {
     setReleaseStatus("signing");
 
     try {
-      const currentLamports = await connection.getBalance(publicKey, "confirmed");
-      const currentBalanceSol = currentLamports / LAMPORTS_PER_SOL;
+      const built = await buildReleaseEscrowTransaction({
+        connection,
+        escrow,
+        founder: publicKey,
+        programId: escrowConfig.programId,
+        specialist,
+        treasury,
+        vault
+      });
 
-      setBalanceSol(currentBalanceSol);
+      await simulateEscrowTransaction(connection, built.transaction);
 
-      if (currentBalanceSol < settlementSol) {
-        setReleaseStatus("idle");
-        setReleaseError(
-          `Insufficient devnet SOL. Payment requires ${formatSol(
-            settlementSol
-          )}, and the connected wallet has ${formatSol(currentBalanceSol)}.`
-        );
-        return;
-      }
-
-      const latestBlockhash = await connection.getLatestBlockhash("confirmed");
-      const transaction = new Transaction({
-        feePayer: publicKey,
-        recentBlockhash: latestBlockhash.blockhash
-      }).add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: ownerWalletKey,
-          lamports: settlementLamports
-        })
-      );
-
-      const signature = await sendTransaction(transaction, connection, {
+      const signature = await sendTransaction(built.transaction, connection, {
         preflightCommitment: "confirmed"
       });
 
@@ -781,31 +948,66 @@ export default function Home() {
       await connection.confirmTransaction(
         {
           signature,
-          blockhash: latestBlockhash.blockhash,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight
+          blockhash: built.latestBlockhash.blockhash,
+          lastValidBlockHeight: built.latestBlockhash.lastValidBlockHeight
         },
         "confirmed"
       );
 
       const slot = await connection.getSlot("confirmed");
-
+      const explorer = transactionExplorer(signature);
       const nextPayment: PaymentResult = {
-        ok: true,
-        mode: "devnet-transfer",
-        status: "confirmed",
-        campaignId: campaign.id,
-        winnerAgent: winnerAgent.name,
+        ...payment,
+        explorerUrl: explorer,
+        releaseExplorerUrl: explorer,
+        releaseSignature: signature,
         signature,
-        explorerUrl: explorerUrl(signature),
-        contractAmountSol: winningBid.priceSol,
-        settlementSol,
-        agentWallet: winnerAgent.ownerWallet,
-        founderWallet: publicKey.toBase58(),
-        slot
+        slot,
+        status: "released"
       };
+      const specialistName = specialistDisplayName(campaign.winningBid);
 
       setPayment(nextPayment);
       setReleaseStatus("confirmed");
+      emitMarketEvents(campaign.id, campaign.jobContext.repository, [
+        {
+          type: "ESCROW_RELEASED",
+          message: `Founder released escrow ${shortAddress(payment.escrowAccount)}.`,
+          explorerUrl: explorer,
+          solAmount: payment.settlementSol,
+          txSignature: signature,
+          walletAddress: payment.escrowAccount
+        },
+        {
+          type: "SPECIALIST_PAID",
+          message: `${specialistName} received ${formatSol(
+            payment.specialistAmountSol
+          )} from the escrow vault.`,
+          agentName: specialistName,
+          explorerUrl: explorer,
+          solAmount: payment.specialistAmountSol,
+          txSignature: signature,
+          walletAddress: payment.specialistWallet
+        },
+        {
+          type: "TREASURY_FEE_PAID",
+          message: `Relix treasury received ${formatSol(
+            payment.treasuryFeeSol
+          )} platform fee.`,
+          explorerUrl: explorer,
+          solAmount: payment.treasuryFeeSol,
+          txSignature: signature,
+          walletAddress: payment.treasuryWallet
+        },
+        {
+          type: "CAMPAIGN_ACTIVE",
+          message: `Campaign active — ${specialistName} is paid and the launch can run.`,
+          agentName: specialistName,
+          explorerUrl: explorer,
+          solAmount: payment.settlementSol,
+          txSignature: signature
+        }
+      ]);
       setExecutedActionCount(0);
       setIsExecutingWork(true);
       setActiveStage("complete");
@@ -815,7 +1017,7 @@ export default function Home() {
       void refreshBalance();
       void saveCampaignMemory(nextPayment);
       void recordSpecialistPayment(
-        winningBid.specialistId,
+        campaign.winningBid.specialistId,
         nextPayment,
         campaign.jobContext.productName
       );
@@ -831,8 +1033,104 @@ export default function Home() {
     } catch (error) {
       setReleaseStatus("idle");
       setReleaseError(
-        error instanceof Error ? error.message : "Payment release failed."
+        error instanceof Error ? error.message : "Escrow release failed."
       );
+    }
+  };
+
+  const refundEscrow = async () => {
+    if (!payment || !publicKey || !connected) {
+      setReleaseError("Connect the founder Phantom wallet to refund escrow.");
+      return;
+    }
+
+    if (payment.status !== "locked") {
+      setReleaseError(`Escrow is already ${payment.status}.`);
+      return;
+    }
+
+    if (payment.founderWallet !== publicKey.toBase58()) {
+      setReleaseError("Only the founder wallet that initialized escrow can refund it.");
+      return;
+    }
+
+    if (!escrowDeadlinePassed(payment.deadlineUnix)) {
+      setReleaseError("Refund is available only after the escrow deadline.");
+      return;
+    }
+
+    if (!escrowConfig.ok) {
+      setReleaseError(escrowConfig.error);
+      return;
+    }
+
+    const escrow = parseSolanaAddress(payment.escrowAccount);
+    const vault = parseSolanaAddress(payment.vault);
+
+    if (!escrow || !vault) {
+      setReleaseError("Stored escrow account data is invalid. Reinitialize escrow.");
+      return;
+    }
+
+    setReleaseError(null);
+    setReleaseStatus("refunding");
+
+    try {
+      const built = await buildRefundEscrowTransaction({
+        connection,
+        escrow,
+        founder: publicKey,
+        programId: escrowConfig.programId,
+        vault
+      });
+
+      await simulateEscrowTransaction(connection, built.transaction);
+
+      const signature = await sendTransaction(built.transaction, connection, {
+        preflightCommitment: "confirmed"
+      });
+
+      setReleaseStatus("confirming");
+
+      await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: built.latestBlockhash.blockhash,
+          lastValidBlockHeight: built.latestBlockhash.lastValidBlockHeight
+        },
+        "confirmed"
+      );
+
+      const slot = await connection.getSlot("confirmed");
+      const explorer = transactionExplorer(signature);
+      const nextPayment: PaymentResult = {
+        ...payment,
+        explorerUrl: explorer,
+        refundExplorerUrl: explorer,
+        refundSignature: signature,
+        signature,
+        slot,
+        status: "refunded"
+      };
+
+      setPayment(nextPayment);
+      setReleaseStatus("confirmed");
+      emitMarketEvents(payment.campaignId, campaign?.jobContext.repository || "unknown", [
+        {
+          type: "ESCROW_REFUNDED",
+          message: `${formatSol(
+            payment.settlementSol
+          )} refunded to the founder after the escrow deadline.`,
+          explorerUrl: explorer,
+          solAmount: payment.settlementSol,
+          txSignature: signature,
+          walletAddress: payment.founderWallet
+        }
+      ]);
+      void refreshBalance();
+    } catch (error) {
+      setReleaseStatus("idle");
+      setReleaseError(error instanceof Error ? error.message : "Escrow refund failed.");
     }
   };
 
@@ -1079,7 +1377,7 @@ export default function Home() {
           type: "SELLER_AGENT_BID_RECEIVED" as const,
           message: `${specialistDisplayName(bid)} (seller) bid ${formatSol(
             bid.priceSol
-          )} for ${bid.deliveryDays}-day delivery.`,
+          )} at a ~${bid.deliveryDays}-day delivery ETA.`,
           agentName: specialistDisplayName(bid),
           walletAddress: getSpecialistAgent(bid.specialistId)?.ownerWallet,
           solAmount: bid.priceSol
@@ -1132,12 +1430,8 @@ export default function Home() {
         `${specialistDisplayName(nextCampaign.winningBid)} selected`,
         "done"
       );
-      await addLog("Preparing payment...", "active", 640);
-      await addLog("Ready for founder approval", "done");
-      await addLog("Waiting for delivery...", "active", 760);
-      await addLog("Delivery received", "done");
-      await addLog("Reviewing quality...", "active", 700);
-      await addLog("Approved", "done");
+      await addLog("Preparing escrow quote...", "active", 640);
+      await addLog("Ready for founder to lock funds", "done");
 
       setHasRun(true);
       setActiveStage("opportunity");
@@ -1207,7 +1501,9 @@ export default function Home() {
     );
     setExecutedActionCount(activeCampaignSnapshot.growthWork.actions.length);
     setHasRun(true);
-    setActiveStage("complete");
+    setActiveStage(
+      activeCampaignSnapshot.payment.status === "released" ? "complete" : "payment"
+    );
 
     // Rehydrate the persisted market-activity timeline for the resumed campaign.
     const resumedCampaignId = activeCampaignSnapshot.campaign.id;
@@ -1613,7 +1909,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/reputation/complete", {
         body: JSON.stringify({
-          amountSol: paymentResult.settlementSol,
+          amountSol: paymentResult.specialistAmountSol,
           client,
           hiredAt: new Date().toISOString(),
           signature: paymentResult.signature,
@@ -1698,8 +1994,8 @@ export default function Home() {
       goal: campaign.request.goal,
       id: `${campaign.id}-${paymentResult.signature}`,
       payment: {
-        amount_sol: paymentResult.settlementSol,
-        recipient_wallet: paymentResult.agentWallet,
+        amount_sol: paymentResult.specialistAmountSol,
+        recipient_wallet: paymentResult.specialistWallet,
         signature: paymentResult.signature
       },
       repository: githubContext.fullName,
@@ -1767,6 +2063,12 @@ export default function Home() {
         </section>
       ) : null}
 
+      {hasRun && campaign ? (
+        <section className="mx-auto w-full max-w-6xl px-6 pb-6 sm:px-8">
+          <ProtocolProofPanel plan={campaign} payment={payment} />
+        </section>
+      ) : null}
+
       {hasRun &&
       campaign &&
       githubContext &&
@@ -1789,6 +2091,7 @@ export default function Home() {
           deliveryRating={deliveryRating}
           editingAssetId={editingAssetId}
           error={releaseError}
+          escrowConfig={escrowConfig}
           founderWallet={publicKey ? publicKey.toBase58() : null}
           onRewardPaid={refreshBalance}
           isExecutingWork={isExecutingWork}
@@ -1808,7 +2111,8 @@ export default function Home() {
           onOpenProfile={setProfileAgentId}
           onPublishNow={publishXPostNow}
           onRate={rateDelivery}
-          onRelease={releasePayment}
+          onRefund={refundEscrow}
+          onRelease={releaseEscrow}
           onRunNext={runNextCampaign}
           onRetryPost={(postId) => publishXPostNow({ postId })}
           onSaveDrafts={saveXPostDrafts}
@@ -2137,6 +2441,7 @@ function GuidedResultFlow({
   deliveryRating,
   editingAssetId,
   error,
+  escrowConfig,
   founderWallet,
   isExecutingWork,
   isPlanningNext,
@@ -2155,6 +2460,7 @@ function GuidedResultFlow({
   onOpenProfile,
   onPublishNow,
   onRate,
+  onRefund,
   onRelease,
   onRewardPaid,
   onRunNext,
@@ -2194,6 +2500,7 @@ function GuidedResultFlow({
   deliveryRating: number | null;
   editingAssetId: string | null;
   error: string | null;
+  escrowConfig: RelixEscrowConfig;
   founderWallet: string | null;
   isExecutingWork: boolean;
   isPlanningNext: boolean;
@@ -2217,6 +2524,7 @@ function GuidedResultFlow({
   }) => Promise<void>;
   onOpenProfile: (id: SpecialistId) => void;
   onRate: (rating: number) => Promise<void>;
+  onRefund: () => Promise<void>;
   onRelease: () => Promise<void>;
   onRewardPaid: () => void;
   onRunNext: () => void;
@@ -2273,9 +2581,9 @@ function GuidedResultFlow({
           <CollapsedStep
             detail={`${specialistDisplayName(
               campaign.winningBid
-            )} · ${formatSol(campaign.winningBid.priceSol)} · ${
+            )} · ${formatSol(campaign.winningBid.priceSol)} · ~${
               campaign.winningBid.deliveryDays
-            } days`}
+            }-day ETA`}
             onOpen={() => setActiveStage("specialist")}
             title="Specialist selected"
           />
@@ -2289,9 +2597,21 @@ function GuidedResultFlow({
         ) : null}
         {position > 3 && payment ? (
           <CollapsedStep
-            detail={`${formatSol(payment.settlementSol)} released · confirmed`}
+            detail={
+              payment.status === "released"
+                ? `${formatSol(payment.settlementSol)} released from escrow`
+                : payment.status === "refunded"
+                  ? `${formatSol(payment.settlementSol)} refunded`
+                  : `${formatSol(payment.settlementSol)} locked in escrow`
+            }
             onOpen={() => setActiveStage("payment")}
-            title="Payment settled"
+            title={
+              payment.status === "released"
+                ? "Escrow released"
+                : payment.status === "refunded"
+                  ? "Escrow refunded"
+                  : "Escrow funded"
+            }
           />
         ) : null}
       </div>
@@ -2313,6 +2633,8 @@ function GuidedResultFlow({
           <SpecialistSelectionSection
             campaign={campaign}
             choosingBidId={choosingBidId}
+            connected={connected}
+            escrowConfig={escrowConfig}
             memory={memory}
             onChooseSpecialist={onChooseSpecialist}
             onOpenProfile={onOpenProfile}
@@ -2360,10 +2682,12 @@ function GuidedResultFlow({
             error={error}
             isRatingDelivery={isRatingDelivery}
             onRate={onRate}
+            onRefund={onRefund}
             onRelease={onRelease}
             payment={payment}
             balanceSol={balanceSol}
             budgetStatus={campaign.budgetStatus}
+            escrowConfig={escrowConfig}
             releaseStatus={releaseStatus}
             winningBid={campaign.winningBid}
           />
@@ -2533,6 +2857,8 @@ function LaunchOpportunitySection({
 function SpecialistSelectionSection({
   campaign,
   choosingBidId,
+  connected,
+  escrowConfig,
   memory,
   onChooseSpecialist,
   onOpenProfile,
@@ -2540,6 +2866,8 @@ function SpecialistSelectionSection({
 }: {
   campaign: CampaignPlan;
   choosingBidId: string | null;
+  connected: boolean;
+  escrowConfig: RelixEscrowConfig;
   memory: CampaignMemoryRecord[];
   onChooseSpecialist: (bidId: string) => Promise<void>;
   onOpenProfile: (id: SpecialistId) => void;
@@ -2551,6 +2879,9 @@ function SpecialistSelectionSection({
     campaign.winningBid;
   const recommendedAgent = getSpecialistAgent(recommendedBid.specialistId);
   const isChoosing = choosingBidId !== null;
+  const treasuryWallet = escrowConfig.ok
+    ? escrowConfig.treasuryWallet.toBase58()
+    : "";
   const sortedBids = [...campaign.bids].sort(
     (a, b) =>
       new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
@@ -2567,6 +2898,16 @@ function SpecialistSelectionSection({
         Employee reviewed every bid and <strong>recommends</strong> one — but you
         make the final hire. Pick the recommended specialist or override it.
       </p>
+      <p className="mt-2 max-w-3xl text-sm leading-6 text-[#71717a]">
+        What you see below is each specialist{"'"}s <strong>proposed scope</strong> —
+        a preview, before any escrow exists. The specialist{"'"}s actual work is
+        generated only after you hire and lock funds in escrow.
+      </p>
+      {!escrowConfig.ok ? (
+        <p className="mt-5 rounded-2xl bg-[#fef2f2] px-4 py-3 text-sm leading-6 text-[#991b1b]">
+          {escrowConfig.error}
+        </p>
+      ) : null}
 
       <div className="mt-8 rounded-[2rem] bg-[#f4f4f5] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/5 pb-4">
@@ -2590,6 +2931,24 @@ function SpecialistSelectionSection({
             const agentReputation =
               reputation[bid.specialistId] || seedReputationFor(agent);
             const confidence = bidConfidence(campaign, bid);
+            const bidPlan = chooseBidForPlan(campaign, bid.id);
+            const bidBlocked = bidPlan.budgetStatus.blocked;
+            const ownerWalletValid = parseSolanaAddress(agent.ownerWallet) !== null;
+            const quote = escrowConfig.ok
+              ? escrowQuoteFor({
+                  deadline: campaign.request.deadline,
+                  feeBps: escrowConfig.feeBps,
+                  totalSol: bid.priceSol
+                })
+              : null;
+            const sameWallet =
+              escrowConfig.ok && agent.ownerWallet === treasuryWallet;
+            const canLock =
+              connected &&
+              escrowConfig.ok &&
+              !isChoosing &&
+              !bidBlocked &&
+              ownerWalletValid;
 
             return (
               <article
@@ -2667,8 +3026,8 @@ function SpecialistSelectionSection({
                       />
                       <BidMeta
                         dark={selected}
-                        label="Delivery"
-                        value={`${bid.deliveryDays} days`}
+                        label="Delivery ETA"
+                        value={`~${bid.deliveryDays}-day`}
                       />
                       <BidMeta
                         dark={selected}
@@ -2697,12 +3056,36 @@ function SpecialistSelectionSection({
 
                 {selected ? (
                   <div className="mt-5 grid gap-3 border-t border-white/15 pt-5 text-sm leading-6 text-[#e4e4e7]">
-                    <p>Deliverables: {bid.deliverables.join(" · ")}</p>
+                    <p>
+                      Proposed deliverables (preview, before escrow):{" "}
+                      {bid.deliverables.join(" · ")}
+                    </p>
                     <p>Risk: {bid.risk}</p>
                     <p className="text-xs text-[#a1a1aa]">
                       {reputationLine(agentReputation)}
                     </p>
                   </div>
+                ) : null}
+
+                {quote && escrowConfig.ok ? (
+                  <EscrowQuotePanel
+                    dark={selected}
+                    quote={quote}
+                    specialistWallet={agent.ownerWallet}
+                    treasuryWallet={treasuryWallet}
+                    warning={sameWallet}
+                  />
+                ) : null}
+
+                {!ownerWalletValid ? (
+                  <p
+                    className={`mt-4 text-xs leading-5 ${
+                      selected ? "text-[#fecaca]" : "text-[#b91c1c]"
+                    }`}
+                  >
+                    This specialist owner wallet is not a valid Solana public
+                    key, so escrow is disabled for this bid.
+                  </p>
                 ) : null}
 
                 <div
@@ -2716,23 +3099,34 @@ function SpecialistSelectionSection({
                         ? "bg-white text-[#0a0a0a] hover:bg-[#e4e4e7]"
                         : "border hairline bg-white text-[#27272a] hover:border-[#0a0a0a]"
                     }`}
-                    disabled={isChoosing}
+                    disabled={!canLock}
                     onClick={() => void onChooseSpecialist(bid.id)}
                     type="button"
                   >
                     {choosingBidId === bid.id
-                      ? "Preparing delivery…"
-                      : selected
-                        ? `Hire ${agent.name} (recommended)`
-                        : `Hire ${agent.name} instead`}
+                      ? "Locking escrow..."
+                      : !escrowConfig.ok
+                        ? "Escrow setup required"
+                        : !connected
+                          ? "Connect wallet to lock funds"
+                          : "Hire Specialist & Lock Funds"}
                   </button>
                   <span
                     className={`text-xs ${
                       selected ? "text-[#a1a1aa]" : "text-[#71717a]"
                     }`}
                   >
-                    {formatSol(bid.priceSol)} · {bid.deliveryDays}-day delivery
+                    {formatSol(bid.priceSol)} total · ~{bid.deliveryDays}-day ETA
                   </span>
+                  {bidBlocked ? (
+                    <span
+                      className={`text-xs ${
+                        selected ? "text-[#fecaca]" : "text-[#b91c1c]"
+                      }`}
+                    >
+                      {bidPlan.budgetStatus.message}
+                    </span>
+                  ) : null}
                 </div>
               </article>
             );
@@ -2766,16 +3160,77 @@ function SpecialistSelectionSection({
         </p>
         <button
           className="mt-4 rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-          disabled={isChoosing}
+          disabled={
+            isChoosing ||
+            !connected ||
+            !escrowConfig.ok ||
+            parseSolanaAddress(recommendedAgent.ownerWallet) === null
+          }
           onClick={() => void onChooseSpecialist(recommendedBid.id)}
           type="button"
         >
           {choosingBidId === recommendedBid.id
-            ? "Preparing delivery…"
-            : `Hire ${recommendedAgent.name} & review delivery`}
+            ? "Locking escrow..."
+            : !escrowConfig.ok
+              ? "Escrow setup required"
+              : !connected
+                ? "Connect wallet to lock funds"
+                : "Hire Specialist & Lock Funds"}
         </button>
       </div>
     </section>
+  );
+}
+
+function EscrowQuotePanel({
+  dark,
+  quote,
+  specialistWallet,
+  treasuryWallet,
+  warning
+}: {
+  dark: boolean;
+  quote: EscrowQuote;
+  specialistWallet: string;
+  treasuryWallet: string;
+  warning: boolean;
+}) {
+  return (
+    <div
+      className={`mt-4 grid gap-3 rounded-2xl p-3 text-xs ${
+        dark ? "bg-white/10 text-[#e4e4e7]" : "bg-[#f4f4f5] text-[#52525b]"
+      }`}
+    >
+      <p className={dark ? "font-medium text-white" : "font-medium text-[#27272a]"}>
+        Escrow split before signing
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <BidMeta dark={dark} label="Total locked" value={formatSol(quote.totalSol)} />
+        <BidMeta
+          dark={dark}
+          label="Specialist payout"
+          value={formatSol(quote.specialistAmountSol)}
+        />
+        <BidMeta
+          dark={dark}
+          label="Relix treasury fee"
+          value={`${formatSol(quote.treasuryFeeSol)} · ${quote.feeBps} bps`}
+        />
+        <BidMeta
+          dark={dark}
+          label="Refund after"
+          value={formatEscrowDeadline(quote.deadlineUnix)}
+        />
+        <BidMeta dark={dark} label="Specialist owner wallet" value={specialistWallet} />
+        <BidMeta dark={dark} label="Relix treasury wallet" value={treasuryWallet} />
+      </div>
+      {warning ? (
+        <p className={dark ? "text-[#fde68a]" : "text-[#92400e]"}>
+          Specialist wallet and Relix treasury wallet are the same. Use separate
+          devnet accounts for a clearer demo.
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -3213,11 +3668,17 @@ function SpecialistDeliverySection({
   return (
     <section className="mx-auto max-w-6xl">
       <SectionHeading
-        kicker="Specialist delivery"
+        kicker="Delivered after escrow funding"
         title={`${specialistDisplayName(
           campaign.winningBid
         )} delivered the launch assets.`}
       />
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-[#71717a]">
+        This work was generated after your funds were locked in the Anchor
+        escrow vault — it is the real delivery, not the earlier bid preview.
+        Review it, then release escrow to pay the specialist and the Relix
+        treasury.
+      </p>
 
       <div className="mt-8 grid gap-8">
         <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
@@ -3326,7 +3787,7 @@ function SpecialistDeliverySection({
           onClick={() => setActiveStage("payment")}
           type="button"
         >
-          Continue to payment
+          Continue to escrow release
         </button>
       </div>
     </section>
@@ -3620,10 +4081,12 @@ function EscrowSection({
   budgetStatus,
   connected,
   deliveryRating,
+  escrowConfig,
   winningBid,
   payment,
   error,
   isRatingDelivery,
+  onRefund,
   onRate,
   releaseStatus,
   onRelease
@@ -3632,77 +4095,106 @@ function EscrowSection({
   budgetStatus: CampaignPlan["budgetStatus"];
   connected: boolean;
   deliveryRating: number | null;
+  escrowConfig: RelixEscrowConfig;
   winningBid: Bid;
   payment: PaymentResult | null;
   error: string | null;
   isRatingDelivery: boolean;
+  onRefund: () => Promise<void>;
   onRate: (rating: number) => Promise<void>;
   releaseStatus: ReleaseStatus;
   onRelease: () => Promise<void>;
 }) {
   const winnerAgent = getSpecialistAgent(winningBid.specialistId);
-  const ownerWalletValid = parseSolanaAddress(winnerAgent.ownerWallet) !== null;
-  const settlementSol = settlementAmountFor(winningBid.priceSol);
+  const sameWallet =
+    payment?.specialistWallet === payment?.treasuryWallet && Boolean(payment);
   const remainingBudgetAfterPayment = payment
-    ? budgetStatus.remainingBudgetSol
+    ? budgetStatus.requestedBudgetSol -
+      (payment.status === "refunded" ? 0 : payment.settlementSol)
     : budgetStatus.requestedBudgetSol - winningBid.priceSol;
-  const isBusy = releaseStatus === "signing" || releaseStatus === "confirming";
+  const isBusy =
+    releaseStatus === "locking" ||
+    releaseStatus === "signing" ||
+    releaseStatus === "confirming" ||
+    releaseStatus === "refunding";
+  const refundAvailable =
+    payment?.status === "locked" && escrowDeadlinePassed(payment.deadlineUnix);
   const releaseLabel =
     releaseStatus === "signing"
-      ? "Signing transaction..."
+      ? "Preparing release..."
       : releaseStatus === "confirming"
         ? "Waiting for confirmation..."
         : connected
-          ? "Approve Employee Payment"
+          ? "Release Escrow"
           : "Connect wallet to release";
-  const paymentRows = [
+  const refundLabel =
+    releaseStatus === "refunding"
+      ? "Preparing refund..."
+      : releaseStatus === "confirming"
+        ? "Waiting for confirmation..."
+        : "Refund Escrow";
+  const escrowRows = [
     {
-      label: "Approve Employee Payment",
-      complete: releaseStatus !== "idle"
+      label: "Escrow account created",
+      complete: Boolean(payment)
     },
     {
-      label: "Signing transaction",
-      complete: releaseStatus === "confirming" || payment !== null
+      label: "Funds locked in escrow",
+      complete: Boolean(payment && payment.status !== "refunded")
     },
     {
-      label: "Waiting for confirmation",
-      complete: payment !== null
+      label: `${specialistDisplayName(winningBid)} delivered launch assets`,
+      complete: Boolean(payment)
     },
     {
-      label: "Confirmed",
-      complete: payment !== null
+      label: "Founder released escrow",
+      complete: payment?.status === "released"
     },
     {
-      label: `${specialistDisplayName(winningBid)} paid`,
-      complete: payment !== null
+      label: "Specialist paid from vault",
+      complete: payment?.status === "released"
+    },
+    {
+      label: "Relix treasury fee paid",
+      complete: payment?.status === "released"
     },
     {
       label: "Campaign active",
-      complete: payment !== null
+      complete: payment?.status === "released"
     }
   ];
+  const title =
+    payment?.status === "released"
+      ? "Escrow Released"
+      : payment?.status === "refunded"
+        ? "Escrow Refunded"
+        : "Release Escrow";
 
   return (
     <section className="mx-auto max-w-3xl">
-      <SectionHeading kicker="Payment" title="Approve Employee Payment" />
+      <SectionHeading kicker="Real devnet escrow · founder approval" title={title} />
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
         <p className="mb-7 text-base leading-7 text-[#52525b]">
-          The specialist has completed the requested work. Payment will be
-          released after your approval.
+          {payment
+            ? "The specialist delivered after escrow funding. Releasing escrow is the founder's approval — it pays the specialist and the Relix treasury from the vault in one transaction. If the founder doesn't release, a refund becomes available after the deadline."
+            : "Once escrow is locked and the specialist delivers, releasing escrow is the founder's approval — it pays the specialist and the Relix treasury from the vault in one transaction."}
         </p>
         <div className="mb-7 grid gap-3 rounded-2xl bg-[#f4f4f5] p-4 text-sm text-[#52525b]">
           <p>{budgetStatus.message}</p>
           <p>
             Remaining campaign budget after specialist:{" "}
-            {formatSol(Math.max(0, remainingBudgetAfterPayment))}.
+            {formatSol(Math.max(0, Number(remainingBudgetAfterPayment.toFixed(3))))}.
           </p>
           <p>
             Devnet wallet balance:{" "}
             {balanceSol === null ? "not connected" : formatSol(balanceSol)}.
           </p>
+          {!escrowConfig.ok ? (
+            <p className="text-[#991b1b]">{escrowConfig.error}</p>
+          ) : null}
         </div>
         <div className="space-y-0">
-          {paymentRows.map((row, index) => {
+          {escrowRows.map((row, index) => {
             return (
               <div className="grid grid-cols-[1fr_28px] gap-5" key={row.label}>
                 <div className="pb-6">
@@ -3716,7 +4208,7 @@ function EscrowSection({
                       row.complete ? "bg-[#0a0a0a]" : "border border-[#d4d4d8]"
                     }`}
                   />
-                  {index < paymentRows.length - 1 ? (
+                  {index < escrowRows.length - 1 ? (
                     <div className="h-full min-h-8 w-px bg-[#e4e4e7]" />
                   ) : null}
                 </div>
@@ -3728,24 +4220,101 @@ function EscrowSection({
         {payment ? (
           <div className="mt-2 grid gap-4">
             <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm font-medium text-[#27272a]">
-              ✓ Campaign is active.
+              {payment.status === "released"
+                ? "Campaign is active. Escrow released the split from the vault."
+                : payment.status === "refunded"
+                  ? "Escrow refunded the locked funds to the founder."
+                  : "Escrow is funded. Release after reviewing the specialist delivery."}
             </p>
-            <ProofRow label="Status" value={payment.status} />
-            <ProofRow label="Amount" value={formatSol(payment.settlementSol)} />
+            <div className="rounded-2xl border hairline bg-white p-5">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-wide text-[#a1a1aa]">
+                Settlement summary
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <ProofRow label="Founder wallet" value={payment.founderWallet} />
+                <ProofRow
+                  label="Specialist owner wallet"
+                  value={payment.specialistWallet}
+                />
+                <ProofRow
+                  label="Relix treasury wallet"
+                  value={payment.treasuryWallet}
+                />
+                <ProofRow label="Escrow vault" value={payment.vault} />
+                <ProofRow
+                  label="Total locked"
+                  value={`${formatSol(payment.settlementSol)} SOL`}
+                />
+                <ProofRow
+                  label="Specialist payout"
+                  value={`${formatSol(payment.specialistAmountSol)} SOL`}
+                />
+                <ProofRow
+                  label="Relix treasury fee"
+                  value={`${formatSol(payment.treasuryFeeSol)} SOL · ${payment.feeBps} bps`}
+                />
+                <ProofRow label="Status" value={escrowStatusLabel(payment.status)} />
+              </div>
+            </div>
+            <ProofRow label="Escrow account" value={payment.escrowAccount} />
             <ProofRow
-              label={`Owner wallet (${winnerAgent.ownerName})`}
-              value={payment.agentWallet}
+              label="Refund available after"
+              value={formatEscrowDeadline(payment.deadlineUnix)}
             />
-            <ProofRow label="Signature" value={payment.signature} />
+            <ProofRow
+              label="Initialize signature"
+              value={payment.initializeSignature}
+            />
+            {payment.releaseSignature ? (
+              <ProofRow label="Release signature" value={payment.releaseSignature} />
+            ) : null}
+            {payment.refundSignature ? (
+              <ProofRow label="Refund signature" value={payment.refundSignature} />
+            ) : null}
+            {sameWallet ? (
+              <p className="rounded-2xl bg-[#fffbeb] px-4 py-3 text-sm leading-6 text-[#92400e]">
+                Specialist wallet and Relix treasury wallet are the same. Use
+                separate devnet accounts for a clearer demo.
+              </p>
+            ) : null}
             <a
               className="block truncate rounded-full bg-[#0a0a0a] px-5 py-3 text-center text-sm font-medium text-white transition hover:bg-[#27272a]"
               href={payment.explorerUrl}
               rel="noreferrer"
               target="_blank"
             >
-              Explorer Link
+              View on Solana Explorer
             </a>
-            <div className="rounded-2xl bg-[#f4f4f5] px-4 py-4">
+            {payment.status === "locked" ? (
+              <div className="grid gap-3">
+                <button
+                  className="rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+                  disabled={!connected || isBusy || !escrowConfig.ok}
+                  onClick={() => void onRelease()}
+                  type="button"
+                >
+                  {releaseLabel}
+                </button>
+                {refundAvailable ? (
+                  <button
+                    className="rounded-full border hairline bg-white px-5 py-3 text-sm font-medium text-[#27272a] transition hover:border-[#0a0a0a] disabled:opacity-50"
+                    disabled={!connected || isBusy || !escrowConfig.ok}
+                    onClick={() => void onRefund()}
+                    type="button"
+                  >
+                    {refundLabel}
+                  </button>
+                ) : (
+                  <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-xs leading-5 text-[#71717a]">
+                    Refund after deadline — available once{" "}
+                    {formatEscrowDeadline(payment.deadlineUnix)} passes, if escrow is
+                    still funded.
+                  </p>
+                )}
+              </div>
+            ) : null}
+            {payment.status === "released" ? (
+              <div className="rounded-2xl bg-[#f4f4f5] px-4 py-4">
               <p className="text-sm font-medium text-[#27272a]">
                 {deliveryRating
                   ? `You rated this delivery ${deliveryRating}/5.`
@@ -3778,38 +4347,23 @@ function EscrowSection({
                 </p>
               )}
             </div>
+            ) : null}
+            {error ? (
+              <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
+                {error}
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="mt-2 grid gap-4">
             <div className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm text-[#52525b]">
-              <p>
-                Payment will be released to {winnerAgent.name} owned by{" "}
-                {winnerAgent.ownerName}.
+              <p>No escrow account is stored for this campaign.</p>
+              <p className="mt-2 text-xs leading-5 text-[#71717a]">
+                Return to specialist selection and use Hire Specialist & Lock
+                Funds. The main demo flow no longer uses a direct founder
+                transfer.
               </p>
-              <p className="mt-2 text-xs text-[#71717a]">
-                Amount: {formatSol(settlementSol)} on Solana devnet.
-              </p>
-              <p className="mt-1 break-all text-xs text-[#71717a]">
-                Owner wallet: {winnerAgent.ownerWallet}
-              </p>
-              {!ownerWalletValid ? (
-                <p className="mt-2 text-xs leading-5 text-[#b91c1c]">
-                  This owner wallet is not a valid Solana public key, so
-                  payment is disabled. The owner needs to republish the agent
-                  with a valid address.
-                </p>
-              ) : null}
             </div>
-            <button
-              className="rounded-full bg-[#0a0a0a] px-5 py-3 text-sm font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
-              disabled={
-                !connected || budgetStatus.blocked || isBusy || !ownerWalletValid
-              }
-              onClick={() => void onRelease()}
-              type="button"
-            >
-              {releaseLabel}
-            </button>
             {error ? (
               <p className="rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
                 {error}
@@ -4062,7 +4616,8 @@ function EmployeeWorkSection({
                 {winnerAgent.name} · {winnerAgent.ownerName}
               </p>
               <p className="mt-1 text-xs text-[#71717a]">
-                {formatSol(payment.settlementSol)} released on Solana devnet.
+                {formatSol(payment.specialistAmountSol)} released to the
+                specialist on Solana devnet.
               </p>
               <a
                 className="mt-4 block truncate rounded-full bg-white px-4 py-2.5 text-center text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white"
@@ -4252,6 +4807,8 @@ function campaignJobTasks({
   xPosts: ScheduledXPost[];
 }): CampaignTask[] {
   const createdAt = new Date().toISOString();
+  const escrowReleased = payment?.status === "released";
+  const escrowLocked = payment?.status === "locked";
   const sequenced = (index: number): CampaignTaskStatus => {
     if (visibleCount > index) {
       return "completed";
@@ -4318,15 +4875,17 @@ function campaignJobTasks({
       title: "Prepare launch thread"
     },
     {
-      completedAt: payment ? createdAt : undefined,
+      completedAt: escrowReleased ? createdAt : undefined,
       createdAt,
-      detail: payment
-        ? "Founder approval received and payment released."
-        : "Waiting for the founder to approve specialist payment.",
+      detail: escrowReleased
+        ? "Founder approval received and escrow released."
+        : escrowLocked
+          ? "Funds are locked in escrow; waiting for founder release."
+          : "Waiting for the founder to lock and release escrow.",
       id: "founder-approval",
       owner: "Founder",
-      status: payment ? "completed" : "waiting_approval",
-      title: "Founder approval"
+      status: escrowReleased ? "completed" : "waiting_approval",
+      title: "Release escrow"
     },
     {
       completedAt: scheduledCount > 0 ? createdAt : undefined,
@@ -4449,7 +5008,7 @@ function assetActionStatus({
 }
 
 function campaignBudget(campaign: CampaignPlan, payment: PaymentResult | null) {
-  const spentSol = payment?.settlementSol || 0;
+  const spentSol = payment && payment.status !== "refunded" ? payment.settlementSol : 0;
   const budgetSol = campaign.request.budgetSol;
 
   return {
@@ -4489,7 +5048,7 @@ function campaignStatus({
   const hasPublished = xPosts.some((post) => post.status === "published") ||
     manualPublishedAssetIds.length > 0;
 
-  if (!payment || !hasPublished) {
+  if (payment?.status !== "released" || !hasPublished) {
     return "waiting_approval";
   }
 
@@ -4665,7 +5224,11 @@ function campaignSnapshotSummary(snapshot: ActiveCampaignSnapshot) {
     "Repository analysed",
     `${specialistDisplayName(snapshot.campaign.winningBid)} hired`,
     "Launch thread drafted",
-    "Payment settled"
+    snapshot.payment.status === "released"
+      ? "Escrow released"
+      : snapshot.payment.status === "refunded"
+        ? "Escrow refunded"
+        : "Escrow funded"
   ];
 
   if (snapshot.xPosts.some((post) => post.status === "scheduled")) {
@@ -4708,7 +5271,11 @@ function readActiveCampaignSnapshot() {
 
     const parsed = JSON.parse(raw) as ActiveCampaignSnapshot;
 
-    return parsed?.campaign?.id && parsed?.payment?.signature ? parsed : null;
+    return parsed?.campaign?.id &&
+      parsed?.payment?.signature &&
+      parsed.payment.mode === "anchor-escrow"
+      ? parsed
+      : null;
   } catch {
     return null;
   }
@@ -4951,6 +5518,12 @@ async function deliverCampaign(
 
 function shortAddress(address: string) {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+// Displays the on-chain Anchor status word ("Funded") in the founder-facing
+// wording used everywhere else in the UI ("funded").
+function escrowStatusLabel(status: PaymentResult["status"]) {
+  return status === "locked" ? "funded" : status;
 }
 
 function formatDate(value: string) {

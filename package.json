@@ -9,11 +9,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "coralos:build": "esbuild scripts/coralos/agent.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/agent.mjs",
+    "coralos:verify": "esbuild scripts/coralos/verify-market.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/verify-market.mjs && node scripts/coralos/dist/verify-market.mjs"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.1.2",
     "@anthropic-ai/sdk": "^0.110.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@solana/wallet-adapter-base": "^0.9.27",
     "@solana/wallet-adapter-phantom": "^0.9.29",
     "@solana/wallet-adapter-react": "^0.15.39",
@@ -25,10 +28,11 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.2",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "@types/mocha": "^10.0.10",
+    "esbuild": "^0.28.1",
     "eslint": "^9.39.1",
     "eslint-config-next": "16.2.9",
     "mocha": "^11.7.5",

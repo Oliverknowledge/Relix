@@ -26,7 +26,8 @@ export type Delivery = SpecialistDelivery;
  * The contract every specialist agent implements to sell work on the Relix
  * marketplace. The Growth Employee is the buyer: it calls `bid` on every
  * active specialist, awards the job to one of them, and calls `deliver`.
- * Payment settles to the owner wallet in `metadata()` after founder approval.
+ * Escrow release settles to the owner wallet in `metadata()` after founder
+ * approval.
  */
 export interface SpecialistAgentAdapter {
   metadata(): SpecialistAgent;

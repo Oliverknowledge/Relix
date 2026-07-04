@@ -4,6 +4,7 @@ import {
   type FounderRequest
 } from "@/app/lib/campaign";
 import { enhanceCampaignPlan } from "@/app/lib/campaign-ai";
+import { collectMarketBids } from "@/app/lib/coralos/market";
 import type { GitHubRepositoryContext } from "@/app/lib/github-tool";
 import type { GoogleAnalyticsMetrics } from "@/app/lib/google-analytics";
 import { registerPublishedSpecialists } from "@/app/lib/specialist-agents";
@@ -36,12 +37,18 @@ export async function POST(request: Request) {
     // Make published seller agents biddable on the server too.
     registerPublishedSpecialists(await listPublishedSpecialists());
 
-    const plan = await createCampaignPlan(body.request, {
-      analytics: body.analytics,
-      github: body.github,
-      reputation: body.reputation,
-      website: body.website
-    });
+    const plan = await createCampaignPlan(
+      body.request,
+      {
+        analytics: body.analytics,
+        github: body.github,
+        reputation: body.reputation,
+        website: body.website
+      },
+      // CoralOS is the primary buyer/seller coordination path; falls back to
+      // local bidding if the Coral runtime is not available.
+      collectMarketBids
+    );
     const enhanced = await enhanceCampaignPlan(plan);
 
     return NextResponse.json({

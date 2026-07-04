@@ -46,8 +46,8 @@ export function createGrowthEmployeeWork({
       },
       {
         id: "payment",
-        title: "Settled payment",
-        detail: `Payment was released after delivery was reviewed. ${campaign.budgetStatus.remainingBudgetSol.toFixed(
+        title: "Released escrow",
+        detail: `Escrow was released after delivery was reviewed. ${campaign.budgetStatus.remainingBudgetSol.toFixed(
           2
         )} SOL remains from the campaign budget.`
       },

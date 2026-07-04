@@ -150,7 +150,7 @@ export function MarketActivityTimeline({ events }: { events: MarketEvent[] }) {
                         rel="noreferrer"
                         target="_blank"
                       >
-                        Explorer
+                        View on Solana Explorer
                       </a>
                     ) : null}
                   </div>

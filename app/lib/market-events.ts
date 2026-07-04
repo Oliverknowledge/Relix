@@ -1,9 +1,8 @@
 // The visible, agentic transaction lifecycle of a marketplace hire. Each event
 // is a typed, persisted record so the "Market Activity" timeline can replay the
 // negotiation between the Growth Employee (buyer agent) and the specialist
-// seller agents. Payment/escrow is intentionally NOT modelled here yet — the
-// txSignature/explorerUrl fields exist so settlement events can be added later
-// without a schema change.
+// seller agents. Escrow settlement events use the txSignature/explorerUrl fields
+// so the timeline can show actual devnet proof next to the marketplace work.
 
 export type MarketEventType =
   | "GROWTH_GOAL_CREATED"
@@ -14,7 +13,13 @@ export type MarketEventType =
   | "SELLER_AGENT_BID_RECEIVED"
   | "GROWTH_EMPLOYEE_RECOMMENDED_SPECIALIST"
   | "FOUNDER_SELECTED_SPECIALIST"
+  | "ESCROW_CREATED"
+  | "FUNDS_LOCKED"
   | "SPECIALIST_DELIVERY_RECEIVED"
+  | "ESCROW_RELEASED"
+  | "SPECIALIST_PAID"
+  | "TREASURY_FEE_PAID"
+  | "ESCROW_REFUNDED"
   | "CAMPAIGN_ACTIVE";
 
 // Who acted. Drives the role framing in the UI so it is obvious that the Growth
@@ -51,7 +56,13 @@ export const MARKET_EVENT_TYPES: MarketEventType[] = [
   "SELLER_AGENT_BID_RECEIVED",
   "GROWTH_EMPLOYEE_RECOMMENDED_SPECIALIST",
   "FOUNDER_SELECTED_SPECIALIST",
+  "ESCROW_CREATED",
+  "FUNDS_LOCKED",
   "SPECIALIST_DELIVERY_RECEIVED",
+  "ESCROW_RELEASED",
+  "SPECIALIST_PAID",
+  "TREASURY_FEE_PAID",
+  "ESCROW_REFUNDED",
   "CAMPAIGN_ACTIVE"
 ];
 
@@ -65,7 +76,13 @@ export const MARKET_EVENT_ACTOR: Record<MarketEventType, MarketEventActor> = {
   SELLER_AGENT_BID_RECEIVED: "seller",
   GROWTH_EMPLOYEE_RECOMMENDED_SPECIALIST: "growth_employee",
   FOUNDER_SELECTED_SPECIALIST: "founder",
+  ESCROW_CREATED: "founder",
+  FUNDS_LOCKED: "founder",
   SPECIALIST_DELIVERY_RECEIVED: "seller",
+  ESCROW_RELEASED: "founder",
+  SPECIALIST_PAID: "system",
+  TREASURY_FEE_PAID: "system",
+  ESCROW_REFUNDED: "founder",
   CAMPAIGN_ACTIVE: "system"
 };
 

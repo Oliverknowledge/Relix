@@ -16,8 +16,10 @@ import {
   type SpecialistReputation
 } from "@/app/lib/specialist-agents";
 import type { WebsiteAnalysis } from "@/app/lib/website-analysis";
+import type { CoordinationMode, CoralProof } from "@/app/lib/coralos/types";
 
 export type { Bid } from "@/app/lib/specialist-agents";
+export type { CoordinationMode, CoralProof } from "@/app/lib/coralos/types";
 
 export type FounderRequest = {
   budgetSol: number;
@@ -63,6 +65,8 @@ export type CampaignPlan = {
     requestedBudgetSol: number;
     selectedPriceSol: number;
   };
+  coordinationMode: CoordinationMode;
+  coralProof?: CoralProof;
   daysRemaining: number;
   id: string;
   jobContext: SpecialistJobContext;
@@ -72,19 +76,55 @@ export type CampaignPlan = {
   winningBid: Bid;
 };
 
+// How the bids for a campaign were gathered. Injected into createCampaignPlan so
+// the server can use the CoralOS market collector while the default (and any
+// client-side importer) stays a pure local computation with no node deps.
+export type BidCollectionResult = {
+  bids: Bid[];
+  coordinationMode: CoordinationMode;
+  coralProof?: CoralProof;
+};
+
+export type BidCollector = (
+  jobContext: SpecialistJobContext
+) => Promise<BidCollectionResult>;
+
+async function localBidCollector(
+  jobContext: SpecialistJobContext
+): Promise<BidCollectionResult> {
+  const bids = await Promise.all(
+    listActiveSpecialistAdapters().map((adapter) => adapter.bid(jobContext))
+  );
+  return { bids, coordinationMode: "local-fallback" };
+}
+
 export type PaymentResult = {
   agentWallet: string;
   campaignId: string;
   contractAmountSol: number;
   errorMessage?: string;
+  escrowAccount: string;
   explorerUrl: string;
+  feeBps: number;
   founderWallet: string;
-  mode: "devnet-transfer";
+  initializeExplorerUrl: string;
+  initializeSignature: string;
+  mode: "anchor-escrow";
   ok: boolean;
+  refundExplorerUrl?: string;
+  refundSignature?: string;
+  releaseExplorerUrl?: string;
+  releaseSignature?: string;
   settlementSol: number;
   signature: string;
   slot?: number;
-  status: "confirmed";
+  specialistAmountSol: number;
+  specialistWallet: string;
+  status: "locked" | "released" | "refunded";
+  treasuryFeeSol: number;
+  treasuryWallet: string;
+  vault: string;
+  deadlineUnix: number;
   winnerAgent: string;
 };
 
@@ -102,7 +142,8 @@ export const defaultFounderRequest: FounderRequest = {
 
 export async function createCampaignPlan(
   request: FounderRequest,
-  signals: CampaignSignals = {}
+  signals: CampaignSignals = {},
+  collectBids: BidCollector = localBidCollector
 ): Promise<CampaignPlan> {
   const cleanRequest = normalizeRequest(request);
   const daysRemaining = getDaysRemaining(cleanRequest.deadline);
@@ -113,9 +154,7 @@ export async function createCampaignPlan(
     request: cleanRequest,
     signals
   });
-  const bids = await Promise.all(
-    listActiveSpecialistAdapters().map((adapter) => adapter.bid(jobContext))
-  );
+  const { bids, coordinationMode, coralProof } = await collectBids(jobContext);
   const { budgetStatus, selection, winningBid } = selectWinningBid(
     bids,
     jobContext,
@@ -125,6 +164,8 @@ export async function createCampaignPlan(
   return {
     bids,
     budgetStatus,
+    coordinationMode,
+    coralProof,
     daysRemaining,
     id,
     jobContext,
@@ -139,7 +180,7 @@ export async function createCampaignPlan(
  * Re-points a plan at a founder-chosen bid without losing the Growth Employee's
  * recommendation. The AI/deterministic pick stays in `recommendedBidId` and its
  * reasoning stays in `selection`; `winningBid` and `budgetStatus` follow the
- * founder's choice so the rest of the flow (delivery, payment) settles on the
+ * founder's choice so the rest of the flow (escrow, delivery) settles on the
  * specialist they hired. Returns the plan unchanged if the bid is unknown.
  */
 export function chooseBidForPlan(plan: CampaignPlan, bidId: string): CampaignPlan {
@@ -169,7 +210,7 @@ export function chooseBidForPlan(plan: CampaignPlan, bidId: string): CampaignPla
             chosen.priceSol
           )}, above your ${formatSol(
             plan.request.budgetSol
-          )} budget. Lower the bid or raise the budget before releasing payment.`,
+          )} budget. Lower the bid or raise the budget before locking escrow.`,
       remainingBudgetSol: Number(
         (plan.request.budgetSol - chosen.priceSol).toFixed(3)
       ),
@@ -520,8 +561,8 @@ function selectionReason({
   const matched = matchedCapabilities(agent, context);
   const deliveryLine =
     winningBid.deliveryDays <= context.daysRemaining
-      ? `${winningBid.deliveryDays}-day delivery lands inside the ${context.daysRemaining}-day deadline`
-      : `${winningBid.deliveryDays}-day delivery is the closest fit to the ${context.daysRemaining}-day deadline`;
+      ? `the ~${winningBid.deliveryDays}-day delivery ETA lands inside the ${context.daysRemaining}-day deadline`
+      : `the ~${winningBid.deliveryDays}-day delivery ETA is the closest fit to the ${context.daysRemaining}-day deadline`;
   const parts = [
     `the ${formatSol(winningBid.priceSol)} bid fits the ${formatSol(
       context.budgetSol
@@ -611,7 +652,7 @@ function budgetMessage({
       budgetSol
     )}. The cheapest specialist costs ${formatSol(
       winningBid.priceSol
-    )}, so increase budget before payment.`;
+    )}, so increase budget before locking escrow.`;
   }
 
   if (winningBid.id !== preferredBid.id) {

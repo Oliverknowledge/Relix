@@ -2,16 +2,50 @@
 
 Relix lets a founder hire one AI Growth Employee.
 
-The founder connects a wallet, GitHub, and X, types one growth goal, and hires Relix. The employee reads the selected GitHub repository, turns recent shipped work into launch posts, hires a specialist, settles the specialist payment on Solana devnet, then lets the founder approve, schedule, or publish X posts through the connected X account.
+The founder connects a wallet, GitHub, and X, types one growth goal, and hires Relix. The employee reads the selected GitHub repository, turns recent shipped work into launch posts, helps the founder lock specialist funds in Anchor escrow on Solana devnet, then lets the founder release escrow, schedule, or publish X posts through the connected X account.
 
 Nothing is posted without explicit founder approval.
+
+## For Judges
+
+Relix uses a real Solana devnet escrow program for founder-to-specialist settlement. When a founder hires a specialist, funds are locked in an escrow vault (a PDA controlled by the Anchor program, not a wallet a human holds the key to). After delivery, the founder releases escrow. The program splits the locked payment between the specialist owner wallet and the Relix treasury wallet in that same transaction. If the specialist no-shows past the deadline, the founder can refund instead of releasing.
+
+A few things worth knowing before you judge the demo:
+
+- **Founder escrow settlement is a separate system from agent-signed reward/prize payouts.** The escrow program (`programs/relix_escrow`) only moves funds when the founder signs `initialize_escrow`, `release_escrow`, or `refund_escrow` through Phantom. Nothing in escrow is signed by an agent.
+- **Reward ladders and prize payouts are signed by the Relix agent treasury**, a separate server-held devnet keypair (`RELIX_AGENT_TREASURY_SECRET`), with no human approval per payout — these are capped, on-chain, agent-signed bonuses layered on top of the marketplace, not part of founder settlement. They are badged "⛓ on-chain" in the UI to keep that distinction visible.
+- **Escrow is native SOL only** for this hackathon MVP — one founder, one specialist, one treasury, no token escrow.
+- **What a production version would add:** a dispute/arbitration path for contested deliveries, and reputation-weighted settlement (e.g. staking, slashing, or graduated fee schedules tied to a specialist's track record). None of that exists today — disagreements currently resolve to either release or a deadline-gated refund, decided solely by the founder.
+
+## CoralOS Market Coordination
+
+Relix uses **CoralOS as the primary coordination layer for the agent marketplace when it is available** — the real [Coral Server](https://github.com/Coral-Protocol/coral-server) runtime, not a mock or CoralOS-style naming over local code.
+
+- The **Growth Employee is registered as a CoralOS buyer agent** (`relix-buyer`). The three **built-in specialists are registered as CoralOS seller agents** (`relix-seller-tournament`, `relix-seller-referral`, `relix-seller-community`). Their definitions live in `~/.coral/agents/*/coral-agent.toml`; the shared agent program is `scripts/coralos/agent.ts` (bundled to `scripts/coralos/dist/agent.mjs`).
+- For a launch, Relix's server (`app/lib/coralos/`) creates a Coral session, and the Coral Server **launches every agent process**. The buyer posts a launch job over the Coral market protocol; each seller connects back over MCP-SSE, computes its **real Relix bid** (the exact same specialist logic the app uses), and returns it; the buyer collects the bids. Relix feeds those CoralOS bids into its existing selection/scoring/delivery flow and awards one.
+- The coordination is real MCP: `coral_create_thread`, `coral_send_message`, `coral_wait_for_agent`, etc. Every CoralOS run's real **session id, thread id, and bid ids** are shown in the **Protocol Proof panel** in the app, next to the escrow details.
+
+**Division of responsibility (stated honestly):**
+
+- **CoralOS coordinates the buyer/seller agent workflow** — job posting, bidding, and collection. It does **not** move money.
+- **Anchor handles all settlement** — real Solana devnet escrow (lock → release/refund → specialist + treasury split). CoralOS does not handle settlement or payments.
+- **Agent-signed reward/prize payouts** remain a separate flow (`RELIX_AGENT_TREASURY_SECRET`), unrelated to both CoralOS and founder escrow.
+- All CoralOS seller agents are Relix's own built-in specialists — Relix does **not** claim remote, autonomous third-party agents.
+
+**Local vs. Vercel.** The CoralOS path needs the JVM Coral Server plus the launched agent processes, so it runs on a **Java-capable local/VM host**, not on Vercel's serverless runtime. When CoralOS is unavailable (missing runtime/env, or running on Vercel), Relix falls back to **local in-process bidding**, and this is shown plainly: the Protocol Proof panel reads **"Coordination mode: Local fallback — CoralOS was not used for this run."** The fallback exists only for development/demo reliability; the bids, selection, and escrow settlement it produces are still real.
+
+### Running the CoralOS path (local)
+
+1. Install **Java 24+** (e.g. `brew install openjdk`) — required by the Coral Server.
+2. Run `npm run coralos:build`, copy the Relix agent folders from `scripts/coralos/agents/` into `~/.coral/agents/`, and set `registry.localAgents` in the Coral Server config to scan those folders (see that folder's README and example config).
+3. Set the CoralOS env vars (below) and start the app. Verify a full market round with `npm run coralos:verify`.
 
 ## What The MVP Proves
 
 - GitHub OAuth reads a real repository: description, README, commits, releases, languages, and detectable stack.
 - Repository changes drive the employee reasoning and launch assets.
 - Specialist bidding and selection happen inside the employee flow.
-- Solana devnet settlement creates a real transaction and Explorer link.
+- Solana devnet escrow creates real lock, release/refund transactions, and Explorer links.
 - X OAuth 2.0 + PKCE connects a real X account.
 - X tokens are encrypted before local storage.
 - Launch posts can be edited, saved as drafts, scheduled, published now, retried, or cancelled.
@@ -21,7 +55,7 @@ Nothing is posted without explicit founder approval.
 
 - Phantom wallet connection on Solana devnet.
 - Devnet balance reads and optional devnet airdrop.
-- Real devnet transfer when payment is released.
+- Real Anchor escrow on devnet for founder settlement: lock SOL in a PDA vault, release to specialist plus Relix treasury, or refund after the deadline.
 - Agent-signed on-chain capabilities: the Referral Specialist's `reward-ladders` and the Tournament Specialist's `prize-payouts` settle capped ladders/pools of real devnet transfers from an agent-controlled treasury wallet — signed server-side with no human approval — to the recipient wallet. Caps are enforced server-side and every payout has an Explorer link. These capabilities are badged "⛓ on-chain" across the app to distinguish them from content capabilities.
 - GitHub OAuth and GitHub API repository reads.
 - X OAuth 2.0 + PKCE.
@@ -45,9 +79,10 @@ The LLM calls live only in `app/lib/anthropic.ts` and `app/lib/campaign-ai.ts`, 
 
 - Without `ANTHROPIC_API_KEY`, specialist bidding, selection, and delivery fall back to deterministic local logic.
 - Specialist recipient wallets are public demo recipient addresses.
+- The three built-in specialists ship with illustrative sample listing data (jobs completed, SOL earned, ratings, recent clients). These are clearly labeled "Sample marketplace listing" in the Agent Profile and use invented client names — they are not real customers or real earnings. Published specialists start from zero and build real reputation as they win and are rated.
 - The local JSON files are a hackathon database. The service layer is isolated so it can be replaced with Postgres, Prisma, or Supabase.
 
-No users, signups, creator contacts, or campaign results are claimed.
+No real users, signups, creator contacts, or campaign results are claimed. Relix itself reports no traction; the only populated figures anywhere are the sample seller listings described above.
 
 ## Run Locally
 
@@ -86,11 +121,24 @@ X_REDIRECT_URI=http://localhost:3000/api/x/callback
 
 RELIX_TOKEN_ENCRYPTION_KEY=replace_with_a_long_random_secret
 
+NEXT_PUBLIC_RELIX_ESCROW_PROGRAM_ID=8dBQUA3ja6Z82oZ5C4qEmTg5CJ3jRtvnMb48h4vL1jgK
+NEXT_PUBLIC_RELIX_TREASURY_WALLET=your_devnet_treasury_public_key
+NEXT_PUBLIC_RELIX_PLATFORM_FEE_BPS=1000
+
 # Optional. Base64 of a funded devnet keypair secret key that acts as the agent
 # treasury — the wallet the Growth Employee signs reward-ladder payouts from,
 # server-side, with no human approval. If unset, Relix generates one on first
 # use, persists it to the gitignored data dir, and airdrops devnet SOL to it.
 RELIX_AGENT_TREASURY_SECRET=optional_base64_devnet_secret_key
+
+# CoralOS market coordination (local demo path — see "CoralOS Market
+# Coordination"). When RELIX_CORALOS_ENABLED=1 and a Coral Server is reachable,
+# CoralOS is the primary buyer/seller coordination path; otherwise Relix uses
+# the labeled local fallback. Never used on Vercel.
+RELIX_CORALOS_ENABLED=1
+CORAL_SERVER_URL=http://localhost:5555
+CORAL_API_KEY=the_auth_key_set_in_your_coral_server_config
+CORAL_NAMESPACE=relix
 
 # Optional but recommended on Vercel. Without this, published marketplace
 # specialists fall back to local JSON files and may disappear on serverless
@@ -197,6 +245,56 @@ If publishing returns `401` or Relix says X did not grant `tweet.write`, open th
 
 After changing X permissions, disconnect X in Relix and connect it again. Existing tokens do not gain new scopes automatically.
 
+## Escrow Setup (Devnet)
+
+The escrow program is deployed on devnet already, so most local runs only need a treasury wallet. Four env vars control it:
+
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_RELIX_ESCROW_PROGRAM_ID` | The deployed Anchor program id (`programs/relix_escrow`). Defaults to the devnet deployment used by this repo. |
+| `NEXT_PUBLIC_RELIX_TREASURY_WALLET` | The Relix treasury's public key. Receives the platform fee on every `release_escrow`. Must be a real devnet address you control the key for if you want to move the fee elsewhere later — the UI only needs the public key. |
+| `NEXT_PUBLIC_RELIX_PLATFORM_FEE_BPS` | Platform fee in basis points (1000 = 10%), capped at 3000 (30%) by the Anchor program. |
+| `RELIX_AGENT_TREASURY_SECRET` | Unrelated to escrow — see [For Judges](#for-judges). Only funds agent-signed reward-ladder/prize payouts, never escrow. |
+
+If any of the three `NEXT_PUBLIC_RELIX_ESCROW_*`/`NEXT_PUBLIC_RELIX_TREASURY_WALLET` values are missing or invalid, `getRelixEscrowConfig()` (`app/lib/relix-escrow.ts`) returns a setup error and the UI shows it directly on the hire and release screens instead of silently falling back to a direct transfer.
+
+### Setting up devnet wallets
+
+1. Install the Solana CLI, then generate keypairs for each role you need — at minimum a founder wallet (Phantom) and a treasury wallet:
+   ```bash
+   solana-keygen new --outfile treasury.json
+   solana address -k treasury.json
+   ```
+2. Fund each devnet wallet with `solana airdrop 2 <address> --url devnet` or the [devnet faucet](https://faucet.solana.com/), or use the in-app `Get devnet SOL` button once Phantom is connected.
+3. Set `NEXT_PUBLIC_RELIX_TREASURY_WALLET` to the treasury's public key.
+4. Point Phantom at devnet and connect it as the founder wallet.
+
+### Keep wallets separate
+
+For a clean, legible demo, use **four distinct devnet wallets**:
+
+- **Founder wallet** — the Phantom wallet connected in the browser; signs `initialize_escrow`, `release_escrow`, `refund_escrow`.
+- **Specialist owner wallet** — set per specialist in `metadata().ownerWallet` (`app/lib/specialist-agents.ts` or the publish form); receives the specialist payout on release.
+- **Relix treasury wallet** — `NEXT_PUBLIC_RELIX_TREASURY_WALLET`; receives the platform fee on release.
+- **Agent payout wallet** — the `RELIX_AGENT_TREASURY_SECRET` keypair; pays reward ladders and prize payouts, entirely separate from escrow.
+
+The UI warns if a specialist's owner wallet matches the treasury wallet, since that collapses two of the three escrow legs into one address and makes the split harder to see on Explorer.
+
+### Testing the Anchor escrow locally
+
+Anchor 1.x runs `anchor test` against Surfpool by default. Install the local Solana toolchain, Anchor CLI, and Surfpool CLI before running escrow tests:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
+curl -sL https://run.surfpool.run/ | bash
+```
+
+Restart the terminal, or ensure `~/.local/bin` and the active Solana release bin are on `PATH`, then run:
+
+```bash
+NO_DNA=1 anchor test
+```
+
 ## Solana Devnet Flow
 
 Devnet is hardcoded in `app/providers.tsx` with `clusterApiUrl("devnet")`. Mainnet is not used.
@@ -204,9 +302,26 @@ Devnet is hardcoded in `app/providers.tsx` with `clusterApiUrl("devnet")`. Mainn
 1. Connect Phantom on devnet.
 2. Use `Get devnet SOL` or the Solana faucet if the balance is low.
 3. Hire the employee.
-4. Review the specialist delivery.
-5. Approve the payment in the wallet.
-6. Relix shows the confirmed signature and devnet Explorer link.
+4. Choose a specialist — this is a bid preview only, no escrow yet.
+5. Click `Hire Specialist & Lock Funds` and sign `initialize_escrow` in Phantom. Relix shows the escrow account, vault PDA, signature, and a Solana Explorer link once it confirms.
+6. Only now does the specialist's real delivery get generated and shown — the earlier bid preview is not reused as "delivered" work.
+7. Review the delivery, then click `Release Escrow` and sign `release_escrow` in Phantom. This splits the vault between the specialist owner wallet and the Relix treasury wallet in one transaction. Relix shows both amounts, the signature, and an Explorer link.
+8. If the founder never releases, `Refund Escrow` (sign `refund_escrow`) becomes available after the deadline and returns the full locked amount to the founder.
+
+## Demo Checklist
+
+A judge can follow the whole founder-to-specialist settlement path from the UI alone:
+
+1. Connect Phantom founder wallet.
+2. Choose repo and goal.
+3. Watch seller agents bid (Market Activity timeline).
+4. Choose specialist — proposed deliverables shown as a preview, before any escrow exists.
+5. Lock funds in escrow — click `Hire Specialist & Lock Funds`, sign `initialize_escrow`, see the escrow account, vault, signature, and Explorer link.
+6. Specialist delivers assets — generated only after the escrow lock confirms, labeled "Delivered after escrow funding."
+7. Release escrow — click `Release Escrow`, sign `release_escrow`.
+8. Show Explorer link for the release transaction.
+9. Show specialist payout and Relix treasury fee in the settlement summary card.
+10. Show campaign active, with the full timeline (`FOUNDER_SELECTED_SPECIALIST` → `ESCROW_CREATED` → `FUNDS_LOCKED` → `SPECIALIST_DELIVERY_RECEIVED` → `ESCROW_RELEASED` → `SPECIALIST_PAID` → `TREASURY_FEE_PAID` → `CAMPAIGN_ACTIVE`) visible in Market Activity.
 
 ## Local Data
 
@@ -299,7 +414,7 @@ export const tournamentSpecialist: SpecialistAgentAdapter = {
 };
 ```
 
-Registering an agent is one line: add the adapter to `specialistAdapters` in `app/lib/specialist-agents.ts`. The marketplace, bidding, selection, settlement, and reputation flows pick it up automatically. Today all four specialists run in-process; the interface is deliberately transport-free so a future version can move adapters behind HTTP or a queue without changing the marketplace.
+Registering an agent is one line: add the adapter to `specialistAdapters` in `app/lib/specialist-agents.ts`. The marketplace, bidding, selection, settlement, and reputation flows pick it up automatically. In local fallback and for published specialists that are not registered with CoralOS, adapters run in-process; when CoralOS is enabled locally, the Growth Employee and the three built-in specialists are launched by Coral Server and coordinate over MCP.
 
 ### Publish Specialist (no code required)
 

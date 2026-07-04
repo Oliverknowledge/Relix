@@ -18,8 +18,8 @@ export function explorerUrl(signature: string) {
 
 /**
  * Returns the parsed PublicKey when `address` is a valid Solana public key,
- * or null when it is not. Used before settlement and when specialists are
- * published, so payment never targets a malformed owner wallet.
+ * or null when it is not. Used before escrow settlement and when specialists
+ * are published, so funds never target a malformed owner wallet.
  */
 export function parseSolanaAddress(address: string): PublicKey | null {
   try {
