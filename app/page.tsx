@@ -363,13 +363,19 @@ export default function Home() {
   useEffect(() => {
     const snapshot = readActiveCampaignSnapshot();
 
-    setManualPublishedAssetIds(snapshot?.manualPublishedAssetIds || []);
-    setCampaignStatusOverride(
-      snapshot?.status && ["paused", "completed"].includes(snapshot.status)
-        ? snapshot.status
-        : null
-    );
-    setActiveCampaignSnapshot(snapshot);
+    const timer = window.setTimeout(() => {
+      setManualPublishedAssetIds(snapshot?.manualPublishedAssetIds || []);
+      setCampaignStatusOverride(
+        snapshot?.status && ["paused", "completed"].includes(snapshot.status)
+          ? snapshot.status
+          : null
+      );
+      setActiveCampaignSnapshot(snapshot);
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, []);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [deliveryRating, setDeliveryRating] = useState<number | null>(null);
@@ -2695,7 +2701,7 @@ function SetupSection({
             />
           </label>
 
-          <div className="grid gap-5 sm:grid-cols-[180px_1fr]">
+          <div className="grid items-start gap-5 sm:grid-cols-[180px_1fr]">
             <label className="grid gap-2">
               <span className="text-sm font-medium text-[#18181b]">
                 Budget
