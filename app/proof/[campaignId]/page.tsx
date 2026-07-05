@@ -153,6 +153,14 @@ function SpecialistMarketSection({
         {receipt.bids.length} seller agent{receipt.bids.length === 1 ? "" : "s"}{" "}
         bid on this job
       </h3>
+      {receipt.coordinationMode !== "local-fallback" ? (
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-[#71717a]">
+          Published specialists bid in-process through Relix&apos;s marketplace
+          adapter; the three built-in specialists additionally run as CoralOS
+          agent processes. That is why the bid count here can exceed the number
+          of CoralOS bid ids above.
+        </p>
+      ) : null}
       <div className="mt-4 grid gap-3">
         {receipt.bids.map((bid) => (
           <SpecialistBidRow

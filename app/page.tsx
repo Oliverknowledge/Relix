@@ -1540,6 +1540,10 @@ export default function Home() {
           defaultFounderRequest.description,
         gameName: humanizeName(context.name)
       };
+      // Active spinner line covering the plan request — CoralOS coordination
+      // plus Claude bid-writing can take ~20-30s, which otherwise reads as dead
+      // air between "Analytics understood" and the market feed.
+      await addLog("Specialists are writing bids...", "active", 480);
       const nextCampaign = await planCampaign(nextRequest, {
         analytics: nextAnalytics,
         github: context,
@@ -3273,11 +3277,12 @@ function LaunchOpportunitySection({
   websiteAnalysis: WebsiteAnalysis | null;
 }) {
   const commits = context.commits.slice(0, 3);
-  const websitePromise = websiteAnalysis?.ok
-    ? websiteAnalysis.promise
-    : "Website could not be analysed";
+  const websiteOk = Boolean(websiteAnalysis?.ok);
   const analyticsLine =
     analyticsMetrics?.summary || "Analytics not connected";
+  const goalPhrase = campaign.request.goal
+    .toLowerCase()
+    .replace(/[.\s]+$/, "");
 
   return (
     <section className="mx-auto flex min-h-[70vh] max-w-5xl flex-col justify-center">
@@ -3287,16 +3292,28 @@ function LaunchOpportunitySection({
           I found something worth launching.
         </h2>
         <p className="mt-6 text-lg leading-8 text-[#52525b]">
-          I noticed {assets.productArea}. This is a good opportunity to launch
-          because your current goal is {campaign.request.goal.toLowerCase()}
+          Your recent work centers on {assets.productArea}. With a goal of{" "}
+          {goalPhrase}, now is a strong moment to put it in front of people.
         </p>
         <p className="mt-5 text-base leading-7 text-[#27272a]">
           {assets.opportunity}
         </p>
 
         <div className="mt-8 grid gap-3 lg:grid-cols-2">
-          <SignalRow label="Website" value={websitePromise} />
-          <SignalRow label="Comparison" value={assets.websiteComparison.summary} />
+          {websiteOk ? (
+            <>
+              <SignalRow label="Website" value={websiteAnalysis?.promise || ""} />
+              <SignalRow
+                label="Comparison"
+                value={assets.websiteComparison.summary}
+              />
+            </>
+          ) : (
+            <SignalRow
+              label="Website"
+              value="Not analysed — the employee used repository and analytics context instead."
+            />
+          )}
           <SignalRow label="Analytics" value={analyticsLine} />
           <SignalRow label="Landing page" value={assets.landingPageRecommendation} />
         </div>
@@ -3779,6 +3796,14 @@ function StrategyFieldsGrid({
   targetAudience: string;
   timing: string;
 }) {
+  // Older/resumed campaigns predate the structured strategy fields and carry
+  // blanks; rendering four empty grey boxes looks broken, so skip the grid
+  // entirely when there is nothing to show. Current bids always populate all
+  // four, so this only affects legacy snapshots.
+  if (![targetAudience, channel, timing, successMetric].some((v) => v?.trim())) {
+    return null;
+  }
+
   return (
     <div className="mt-4 grid gap-2 sm:grid-cols-2">
       <StrategyMeta dark={dark} label="Target audience" value={targetAudience} />
@@ -4249,16 +4274,25 @@ function SpecialistDeliverySection({
           <p className="mt-4 max-w-4xl text-sm leading-6 text-[#71717a]">
             Source: {assets.repository}. {assets.sourceSummary}
           </p>
-          <p className="mt-6 text-xs font-medium uppercase tracking-[0.14em] text-[#71717a]">
-            Strategy
-          </p>
-          <StrategyFieldsGrid
-            channel={delivery.channel}
-            dark={false}
-            successMetric={delivery.successMetric}
-            targetAudience={delivery.targetAudience}
-            timing={delivery.timing}
-          />
+          {[
+            delivery.targetAudience,
+            delivery.channel,
+            delivery.timing,
+            delivery.successMetric
+          ].some((v) => v?.trim()) ? (
+            <>
+              <p className="mt-6 text-xs font-medium uppercase tracking-[0.14em] text-[#71717a]">
+                Strategy
+              </p>
+              <StrategyFieldsGrid
+                channel={delivery.channel}
+                dark={false}
+                successMetric={delivery.successMetric}
+                targetAudience={delivery.targetAudience}
+                timing={delivery.timing}
+              />
+            </>
+          ) : null}
         </div>
 
         {showRewardLadder ? (
@@ -4489,6 +4523,12 @@ function DeliveryAssetCard({
   const remaining = 280 - text.length;
   const canSendToX = validXPost(text);
   const isTweet = block.kind === "tweet";
+  // Notes are long-form community/reference briefs (announcements, rules,
+  // moderator notes), not single X posts — so they never get the 280-char
+  // counter or the Schedule/Publish-to-X buttons. Showing those made a
+  // legitimately long announcement look "broken" with a red -62 and greyed-out
+  // publish. Tweets, replies, and follow-ups remain X-publishable.
+  const isXPublishable = block.kind !== "note";
   const actionStatus = assetActionStatus({
     copied,
     manualPublished,
@@ -4513,13 +4553,15 @@ function DeliveryAssetCard({
           <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#52525b]">
             {actionStatus}
           </span>
-          <span
-            className={`text-xs ${
-              remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
-            }`}
-          >
-            {remaining}
-          </span>
+          {isXPublishable ? (
+            <span
+              className={`text-xs ${
+                remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
+              }`}
+            >
+              {remaining}
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -4554,34 +4596,38 @@ function DeliveryAssetCard({
         >
           {editing ? "Done" : "Edit"}
         </button>
-        <button
-          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
-          disabled={!xConnected || !canSendToX || isScheduling}
-          onClick={() =>
-            void onScheduleOne({
-              label: block.label,
-              sourceId: block.id,
-              text
-            })
-          }
-          type="button"
-        >
-          {isScheduling ? "Scheduling..." : "Schedule"}
-        </button>
-        <button
-          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
-          disabled={!xConnected || !canSendToX || publishing}
-          onClick={() =>
-            void onPublishNow({
-              label: block.label,
-              sourceId: block.id,
-              text
-            })
-          }
-          type="button"
-        >
-          {publishing ? "Publishing..." : "Publish"}
-        </button>
+        {isXPublishable ? (
+          <>
+            <button
+              className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
+              disabled={!xConnected || !canSendToX || isScheduling}
+              onClick={() =>
+                void onScheduleOne({
+                  label: block.label,
+                  sourceId: block.id,
+                  text
+                })
+              }
+              type="button"
+            >
+              {isScheduling ? "Scheduling..." : "Schedule"}
+            </button>
+            <button
+              className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
+              disabled={!xConnected || !canSendToX || publishing}
+              onClick={() =>
+                void onPublishNow({
+                  label: block.label,
+                  sourceId: block.id,
+                  text
+                })
+              }
+              type="button"
+            >
+              {publishing ? "Publishing..." : "Publish"}
+            </button>
+          </>
+        ) : null}
         {isTweet && !xConnected ? (
           <>
             <a
@@ -6019,9 +6065,31 @@ function reputationLine(reputation: SpecialistReputation) {
 }
 
 function firstSentence(text: string) {
-  const match = text.match(/^[^.!?]*[.!?]/);
+  const trimmed = text.trim();
+  // Only break on a sentence terminator followed by whitespace or end-of-string,
+  // so a decimal point (the "." in "0.75 SOL") never truncates the reason to
+  // "...because the 0.". Falls back to a ~140-char word-boundary truncation when
+  // the first sentence is missing or unusually long.
+  const match = trimmed.match(/^.*?[.!?](?=\s|$)/);
 
-  return match ? match[0].trim() : text;
+  if (match && match[0].length <= 180) {
+    return match[0].trim();
+  }
+
+  return truncateText(trimmed, 140);
+}
+
+function truncateText(text: string, max: number) {
+  const clean = text.trim().replace(/\s+/g, " ");
+
+  if (clean.length <= max) {
+    return clean;
+  }
+
+  const slice = clean.slice(0, max);
+  const lastSpace = slice.lastIndexOf(" ");
+
+  return `${(lastSpace > 40 ? slice.slice(0, lastSpace) : slice).trim()}…`;
 }
 
 function marketplacePitch(bid: Pick<Bid, "reasoning">) {

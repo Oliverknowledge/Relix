@@ -72,9 +72,18 @@ export function createCampaignAssets({
     : "Website could not be analysed.";
   const analyticsSummary =
     analytics?.summary || "Analytics not connected.";
-  const opportunity = `I noticed ${plainLower(
+  // Quote the shipped change verbatim instead of splicing a raw commit title
+  // into a sentence (which produced "I noticed add delivery readiness..."). The
+  // launch reason only references the website when the site was actually read
+  // and is behind the product — a failed/unread analysis is never framed as a
+  // positive reason to launch.
+  const opportunityReason =
+    websiteComparison.status === "missing-latest-update"
+      ? `Your site doesn't mention it yet, so a launch now gives people a concrete reason to look again.`
+      : `That's a concrete reason to put ${productName} in front of the right people now.`;
+  const opportunity = `Your latest ship: "${quoteChange(
     launchChange
-  )}. The website read says: ${websiteComparison.summary.toLowerCase()}. That gives new users a concrete reason to try ${productName} now.`;
+  )}." ${opportunityReason}`;
 
   return {
     analysis,
@@ -200,4 +209,17 @@ function plainLower(value: string) {
   }
 
   return value.charAt(0).toLowerCase() + value.slice(1);
+}
+
+// Prepares a shipped change (usually a raw commit title) to be shown inside
+// quotes: collapse whitespace, strip a trailing period so we never render
+// ".", and capitalise the first letter so the quote reads cleanly.
+function quoteChange(value: string) {
+  const text = value.trim().replace(/\s+/g, " ").replace(/[.\s]+$/, "");
+
+  if (!text) {
+    return "the latest update";
+  }
+
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

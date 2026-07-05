@@ -18,6 +18,7 @@ import {
 import { formatSol } from "@/app/lib/campaign";
 import { CapabilityChip } from "@/app/components/capability-chip";
 import {
+  isBuiltInSpecialist,
   registerPublishedSpecialists,
   seedReputationFor,
   specialistRegistry,
@@ -175,6 +176,15 @@ export default function SpecialistProfilePage() {
           <ProfileMeta label="Published" value={formatMonthYear(agent.createdAt)} />
         </div>
       </section>
+
+      {isBuiltInSpecialist(agent.id) ? (
+        <p className="mt-10 rounded-2xl bg-[#fffbeb] px-4 py-3 text-sm leading-6 text-[#92400e]">
+          Sample marketplace listing — the jobs, earnings, ratings, and client
+          names below are illustrative demo data, not real clients. Published
+          specialists start from zero and build real reputation as they win and
+          are rated.
+        </p>
+      ) : null}
 
       <section className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ProfileStat

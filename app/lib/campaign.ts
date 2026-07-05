@@ -689,7 +689,26 @@ function campaignId(request: FounderRequest) {
     .replace(/^-|-$/g, "")
     .slice(0, 42);
 
-  return `relix-${slug || "campaign"}`;
+  // Append a per-run suffix (date + short random) so two runs of the same
+  // repo/goal get distinct ids. Without this, market events, proof receipts,
+  // and CoralOS sessions from separate runs collide under one slug — the
+  // proof receipt then shows two sessions under one header. createCampaignPlan
+  // is called exactly once per run, and chooseBidForPlan reuses the plan id on
+  // override, so this stays a single stable id for the life of a run. Resumed
+  // campaigns carry their original id in the stored snapshot, so they are
+  // unaffected.
+  return `relix-${slug || "campaign"}-${runSuffix()}`;
+}
+
+function runSuffix() {
+  const now = new Date();
+  const date =
+    `${now.getFullYear()}` +
+    `${String(now.getMonth() + 1).padStart(2, "0")}` +
+    `${String(now.getDate()).padStart(2, "0")}`;
+  const random = Math.random().toString(36).slice(2, 8);
+
+  return `${date}-${random}`;
 }
 
 function humanizeRepoName(name: string) {
