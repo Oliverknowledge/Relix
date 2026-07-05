@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   MARKET_ACTOR_LABEL,
   type MarketEvent,
@@ -38,7 +39,17 @@ const ACTOR_STYLE: Record<
   }
 };
 
-export function MarketActivityTimeline({ events }: { events: MarketEvent[] }) {
+export function MarketActivityTimeline({
+  events,
+  footer,
+  limit
+}: {
+  events: MarketEvent[];
+  // Optional: render only the most recent `limit` events (main page's compact
+  // "pulse" view). The proof page passes no limit and gets the full ledger.
+  footer?: ReactNode;
+  limit?: number;
+}) {
   if (events.length === 0) {
     return null;
   }
@@ -47,6 +58,9 @@ export function MarketActivityTimeline({ events }: { events: MarketEvent[] }) {
   const bidCount = ordered.filter(
     (event) => event.type === "SELLER_AGENT_BID_RECEIVED"
   ).length;
+  const visible =
+    typeof limit === "number" && limit > 0 ? ordered.slice(-limit) : ordered;
+  const truncated = visible.length < ordered.length;
 
   return (
     <section className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
@@ -71,10 +85,16 @@ export function MarketActivityTimeline({ events }: { events: MarketEvent[] }) {
         </span>
       </div>
 
+      {truncated ? (
+        <p className="mt-3 text-xs text-[#a1a1aa]">
+          Showing the latest {visible.length} of {ordered.length} events.
+        </p>
+      ) : null}
+
       <ol className="mt-6 grid gap-0">
-        {ordered.map((event, index) => {
+        {visible.map((event, index) => {
           const style = ACTOR_STYLE[event.actor];
-          const isLast = index === ordered.length - 1;
+          const isLast = index === visible.length - 1;
 
           return (
             <li className="relative flex gap-4 pb-5 last:pb-0" key={event.id}>
@@ -184,6 +204,8 @@ export function MarketActivityTimeline({ events }: { events: MarketEvent[] }) {
           );
         })}
       </ol>
+
+      {footer ? <div className="mt-5">{footer}</div> : null}
     </section>
   );
 }

@@ -7,6 +7,7 @@ import {
 import {
   LAMPORTS_PER_SOL
 } from "@solana/web3.js";
+import Link from "next/link";
 import {
   type Dispatch,
   type RefObject,
@@ -17,7 +18,7 @@ import {
   useState
 } from "react";
 import { MarketActivityTimeline } from "@/app/components/market-activity";
-import { ProtocolProofPanel } from "@/app/components/protocol-proof";
+import { autonomyCounts } from "@/app/components/protocol-proof";
 import { PrizePayoutCard } from "@/app/components/prize-payout";
 import { RewardLadderCard } from "@/app/components/reward-ladder";
 import { AgentProfileModal } from "@/app/components/specialist-ui";
@@ -56,6 +57,7 @@ import {
   type GrowthEmployeeWork
 } from "@/app/lib/growth-employee";
 import type { CampaignMemoryRecord } from "@/app/lib/memory-store";
+import type { DeliveryReadiness } from "@/app/lib/delivery-readiness";
 import {
   getSpecialistAdapter,
   getSpecialistAgent,
@@ -117,6 +119,47 @@ type NextStepPlan = {
   nextGoal: string;
   recommendation: string;
   shouldContinue: boolean;
+};
+
+// The partial body sent to POST /api/proof. Mirrors app/lib/proof-store.ts's
+// ProofReceiptUpsert (minus campaignId, passed separately) without importing
+// that module here — it pulls in Node's `fs`, which must stay out of the
+// client bundle.
+type ProofReceiptDraft = {
+  awardedBidId?: string;
+  bids?: {
+    channel: string;
+    deliverables: string[];
+    deliveryDays: number;
+    id: string;
+    priceSol: number;
+    reasoning: string;
+    risk: string;
+    specialistId: string;
+    successMetric: string;
+    targetAudience: string;
+    timing: string;
+  }[];
+  budgetSol?: number;
+  coordinationMode?: CampaignPlan["coordinationMode"];
+  coralProof?: CampaignPlan["coralProof"];
+  deliverySummary?: string;
+  goal?: string;
+  payment?: PaymentResult;
+  readiness?: DeliveryReadiness;
+  recommendedBidId?: string;
+  repository?: string;
+  selectionReason?: string;
+};
+
+// One row of the post-delivery Launch Checklist. Every `done` value is
+// derived from state the app already holds (payment status, xPosts,
+// nextPlan) — nothing here is separately persisted.
+type LaunchChecklistItem = {
+  detail: string;
+  done: boolean;
+  id: "review-delivery" | "release-escrow" | "schedule-posts" | "follow-up-post" | "plan-next";
+  title: string;
 };
 
 type WorkLogEntry = {
@@ -245,7 +288,7 @@ export default function Home() {
   } = useWallet();
   const [form, setForm] = useState<FounderRequest>({
     ...defaultFounderRequest,
-    budgetSol: 10,
+    budgetSol: 1,
     deadline: "2026-07-18",
     goal: "Get 500 waitlist signups."
   });
@@ -280,6 +323,8 @@ export default function Home() {
     useState<GrowthCampaignAssets | null>(null);
   const [specialistDelivery, setSpecialistDelivery] =
     useState<SpecialistDelivery | null>(null);
+  const [deliveryReadiness, setDeliveryReadiness] =
+    useState<DeliveryReadiness | null>(null);
   const [growthWork, setGrowthWork] = useState<GrowthEmployeeWork | null>(null);
   const [choosingBidId, setChoosingBidId] = useState<string | null>(null);
   const [nextPlan, setNextPlan] = useState<NextStepPlan | null>(null);
@@ -309,17 +354,23 @@ export default function Home() {
   const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
   const [manualPublishedAssetIds, setManualPublishedAssetIds] = useState<
     string[]
-  >(() => readActiveCampaignSnapshot()?.manualPublishedAssetIds || []);
+  >([]);
   const [campaignStatusOverride, setCampaignStatusOverride] =
-    useState<CampaignStatus | null>(() => {
-      const status = readActiveCampaignSnapshot()?.status;
-
-      return status && ["paused", "completed"].includes(status)
-        ? status
-        : null;
-    });
+    useState<CampaignStatus | null>(null);
   const [activeCampaignSnapshot, setActiveCampaignSnapshot] =
-    useState<ActiveCampaignSnapshot | null>(() => readActiveCampaignSnapshot());
+    useState<ActiveCampaignSnapshot | null>(null);
+
+  useEffect(() => {
+    const snapshot = readActiveCampaignSnapshot();
+
+    setManualPublishedAssetIds(snapshot?.manualPublishedAssetIds || []);
+    setCampaignStatusOverride(
+      snapshot?.status && ["paused", "completed"].includes(snapshot.status)
+        ? snapshot.status
+        : null
+    );
+    setActiveCampaignSnapshot(snapshot);
+  }, []);
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [deliveryRating, setDeliveryRating] = useState<number | null>(null);
   const [isRatingDelivery, setIsRatingDelivery] = useState(false);
@@ -396,6 +447,26 @@ export default function Home() {
         method: "POST"
       }).catch(() => {
         // Non-fatal: the timeline is already shown from local state.
+      });
+    },
+    []
+  );
+
+  // Fire-and-forget upsert into the persisted proof receipt shown at
+  // /proof/[campaignId] — mirrors emitMarketEvents above. Called at the same
+  // five moments the founder flow already emits market events for (plan,
+  // lock, delivery, readiness, release/refund); each call sends only the
+  // fields known at that moment, and the API route merges them into the
+  // stored record. Non-fatal on failure: the founder flow never depends on
+  // this succeeding, only the proof page does.
+  const saveProofReceipt = useCallback(
+    (campaignId: string, draft: ProofReceiptDraft) => {
+      void fetch("/api/proof", {
+        body: JSON.stringify({ campaignId, ...draft }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST"
+      }).catch(() => {
+        // Non-fatal: the proof page just won't reflect this update.
       });
     },
     []
@@ -765,6 +836,10 @@ export default function Home() {
       setCampaign(chosenPlan);
       setPayment(nextPayment);
       setReleaseStatus("idle");
+      saveProofReceipt(chosenPlan.id, {
+        awardedBidId: chosenBid.id,
+        payment: nextPayment
+      });
       // CoralOS award + escrow-link records. These are Relix protocol events that
       // LINK the on-chain escrow to the CoralOS session/thread that produced the
       // winning bid — not messages posted back to the Coral Server. CoralOS
@@ -904,6 +979,62 @@ export default function Home() {
     }, 100);
   };
 
+  // After delivery, the Growth Employee (buyer agent) runs a deterministic,
+  // advisory readiness check and signs the verdict with the agent key. This is
+  // NOT the release gate — the founder's Phantom signature stays the only way to
+  // release escrow. It fails silently: if the check can't run, the founder flow
+  // is unaffected and no misleading state is shown.
+  const runReadinessCheck = async (
+    chosenPlan: CampaignPlan,
+    nextDelivery: SpecialistDelivery
+  ) => {
+    const bid = chosenPlan.winningBid;
+    const readiness = await requestDeliveryReadiness({
+      awardedBidId: bid.id,
+      specialistId: bid.specialistId,
+      delivery: nextDelivery,
+      jobContext: {
+        jobId: chosenPlan.jobContext.jobId,
+        goal: chosenPlan.jobContext.goal
+      },
+      escrowFunded: true,
+      coordinationMode: chosenPlan.coordinationMode,
+      coralSessionId: chosenPlan.coralProof?.sessionId,
+      coralThreadId: chosenPlan.coralProof?.threadId
+    });
+
+    if (!readiness) {
+      return;
+    }
+
+    setDeliveryReadiness(readiness);
+    saveProofReceipt(chosenPlan.id, { readiness });
+
+    const name = specialistDisplayName(bid);
+    const passed = readiness.checks.filter((check) => check.passed).length;
+    const onChainProof =
+      readiness.attestation?.onChain && readiness.attestation.txSignature
+        ? {
+            txSignature: readiness.attestation.txSignature,
+            explorerUrl: readiness.attestation.explorerUrl
+          }
+        : {};
+
+    emitMarketEvents(chosenPlan.id, chosenPlan.jobContext.repository, [
+      {
+        type: "DELIVERY_READY_FOR_RELEASE",
+        message: readiness.ready
+          ? `Growth Employee ran the delivery readiness check: ${passed}/${readiness.checks.length} checks passed. ${name}'s work is marked ready for release — the founder signs the final escrow release.`
+          : `Growth Employee ran the delivery readiness check: ${passed}/${readiness.checks.length} checks passed. Not all checks passed; the founder still decides (release or refund).`,
+        agentName: "Growth Employee",
+        bidId: bid.id,
+        coralSessionId: chosenPlan.coralProof?.sessionId,
+        coralThreadId: chosenPlan.coralProof?.threadId,
+        ...onChainProof
+      }
+    ]);
+  };
+
   // The Growth Employee only recommends a specialist; the founder makes the
   // final hire here. Escrow is locked first — the specialist's delivery is
   // only generated and shown once that lock is confirmed on-chain.
@@ -914,8 +1045,6 @@ export default function Home() {
 
     const chosenPlan = chooseBidForPlan(campaign, bidId);
     const chosenBid = chosenPlan.winningBid;
-    const existingDelivery: SpecialistDelivery | null =
-      chosenBid.id === campaign.winningBid.id ? specialistDelivery : null;
 
     setChoosingBidId(bidId);
 
@@ -926,11 +1055,24 @@ export default function Home() {
         return;
       }
 
-      const nextDelivery =
-        existingDelivery ??
-        (await deliverCampaign(chosenBid.specialistId, chosenPlan.jobContext));
+      // Always generate a fresh delivery after the lock confirms — even for
+      // the recommended bid, whose delivery was already pre-generated during
+      // planning so the results screen has something to render before a hire
+      // happens. Reusing that pre-lock delivery here would make the "delivered
+      // after escrow funding" copy and the readiness attestation's
+      // escrow-funded-before-delivery claim false for the common path.
+      const nextDelivery = await deliverCampaign(
+        chosenBid.specialistId,
+        chosenPlan.jobContext
+      );
 
+      saveProofReceipt(chosenPlan.id, {
+        awardedBidId: chosenBid.id,
+        deliverySummary: nextDelivery.report,
+        selectionReason: chosenPlan.selection.reason
+      });
       receiveSpecialistDelivery(chosenPlan, nextDelivery);
+      await runReadinessCheck(chosenPlan, nextDelivery);
     } catch {
       setIntegrationError(
         "Could not prepare the delivery for that specialist. Try again."
@@ -1022,6 +1164,7 @@ export default function Home() {
 
       setPayment(nextPayment);
       setReleaseStatus("confirmed");
+      saveProofReceipt(campaign.id, { payment: nextPayment });
       // CoralOS settlement records, linked to the CoralOS session that awarded
       // this specialist. Relix protocol events — CoralOS moved no money.
       const coralSettlement: MarketEventDraft[] =
@@ -1202,6 +1345,7 @@ export default function Home() {
 
       setPayment(nextPayment);
       setReleaseStatus("confirmed");
+      saveProofReceipt(payment.campaignId, { payment: nextPayment });
       emitMarketEvents(payment.campaignId, campaign?.jobContext.repository || "unknown", [
         {
           type: "ESCROW_REFUNDED",
@@ -1299,10 +1443,10 @@ export default function Home() {
     setCampaignMemory([]);
     setCampaignAssets(null);
     setSpecialistDelivery(null);
+    setDeliveryReadiness(null);
     setGrowthWork(null);
     setDeliveryRating(null);
     setXDrafts({});
-    setXPosts([]);
     setScheduleMessage(null);
     setManualPublishedAssetIds([]);
     setCampaignStatusOverride(null);
@@ -1430,6 +1574,28 @@ export default function Home() {
       setXDrafts(draftsFromDelivery(nextDelivery));
       await loadXPosts(nextCampaign.id, true);
       void saveActivity(nextCampaign.id, context.fullName, pendingActivity);
+      saveProofReceipt(nextCampaign.id, {
+        bids: nextCampaign.bids.map((bid) => ({
+          channel: bid.channel,
+          deliverables: bid.deliverables,
+          deliveryDays: bid.deliveryDays,
+          id: bid.id,
+          priceSol: bid.priceSol,
+          reasoning: bid.reasoning,
+          risk: bid.risk,
+          specialistId: bid.specialistId,
+          successMetric: bid.successMetric,
+          targetAudience: bid.targetAudience,
+          timing: bid.timing
+        })),
+        budgetSol: nextRequest.budgetSol,
+        coordinationMode: nextCampaign.coordinationMode,
+        coralProof: nextCampaign.coralProof,
+        goal: nextRequest.goal,
+        recommendedBidId: nextCampaign.recommendedBidId,
+        repository: context.fullName,
+        selectionReason: nextCampaign.selection.reason
+      });
 
       const recommendedBid =
         nextCampaign.bids.find(
@@ -1498,7 +1664,13 @@ export default function Home() {
         "done"
       );
       await addLog("Searching marketplace...", "active", 980);
-      await addLog("41 seller agents online", "done", 520);
+      await addLog(
+        `${nextCampaign.bids.length} seller agent${
+          nextCampaign.bids.length === 1 ? "" : "s"
+        } online`,
+        "done",
+        520
+      );
       await addLog("Sending job request...", "active", 920);
       await addLog("Waiting for bids...", "active", 1220);
 
@@ -1573,6 +1745,9 @@ export default function Home() {
     setGithubContext(activeCampaignSnapshot.githubContext);
     setCampaignAssets(activeCampaignSnapshot.campaignAssets);
     setSpecialistDelivery(activeCampaignSnapshot.specialistDelivery);
+    // Readiness is per-run and not persisted in the snapshot; clear it so a
+    // resumed campaign never shows a stale verdict from a previous run.
+    setDeliveryReadiness(null);
     setRepositoryAnalysis(activeCampaignSnapshot.repositoryAnalysis);
     setGrowthWork(activeCampaignSnapshot.growthWork);
     setPayment(activeCampaignSnapshot.payment);
@@ -2147,13 +2322,32 @@ export default function Home() {
             activeStage === "working" ? "" : "pt-28"
           }`}
         >
-          <MarketActivityTimeline events={marketEvents} />
+          <MarketActivityTimeline
+            events={marketEvents}
+            footer={
+              campaign ? (
+                <Link
+                  className="text-sm font-medium text-[#2563eb] transition hover:underline"
+                  href={`/proof/${campaign.id}`}
+                  target="_blank"
+                >
+                  View full run ledger →
+                </Link>
+              ) : null
+            }
+            limit={5}
+          />
         </section>
       ) : null}
 
       {hasRun && campaign ? (
         <section className="mx-auto w-full max-w-6xl px-6 pb-6 sm:px-8">
-          <ProtocolProofPanel plan={campaign} payment={payment} />
+          <VerifiedRunStrip
+            campaignId={campaign.id}
+            coordinationMode={campaign.coordinationMode}
+            events={marketEvents}
+            payment={payment}
+          />
         </section>
       ) : null}
 
@@ -2181,6 +2375,7 @@ export default function Home() {
           error={releaseError}
           escrowConfig={escrowConfig}
           founderWallet={publicKey ? publicKey.toBase58() : null}
+          readiness={deliveryReadiness}
           onRewardPaid={refreshBalance}
           isExecutingWork={isExecutingWork}
           isPlanningNext={isPlanningNext}
@@ -2197,6 +2392,11 @@ export default function Home() {
           onEditAsset={setEditingAssetId}
           onMarkPublishedManual={markAssetPublishedManually}
           onOpenProfile={setProfileAgentId}
+          onPlanNext={() => {
+            if (payment) {
+              void planNextMove(payment);
+            }
+          }}
           onPublishNow={publishXPostNow}
           onRate={rateDelivery}
           onRefund={refundEscrow}
@@ -2240,6 +2440,67 @@ export default function Home() {
         />
       ) : null}
     </main>
+  );
+}
+
+// Compact, always-visible summary of this run's coordination mode and
+// settlement status — replaces the full Protocol Proof panel on the main
+// page. Everything underneath (CoralOS ids, bids, readiness attestation,
+// escrow wallets/tx signatures, raw JSON) lives at the linked proof page
+// instead, so a founder reading the main flow top-to-bottom isn't stopped by
+// judge-facing detail, while a judge gets a direct, shareable receipt URL.
+function VerifiedRunStrip({
+  campaignId,
+  coordinationMode,
+  events,
+  payment
+}: {
+  campaignId: string;
+  coordinationMode: CampaignPlan["coordinationMode"];
+  events: MarketEvent[];
+  payment: PaymentResult | null;
+}) {
+  const isCoral = coordinationMode !== "local-fallback";
+  const modeLabel =
+    coordinationMode === "coralos-hosted"
+      ? "Hosted CoralOS"
+      : coordinationMode === "coralos"
+        ? "CoralOS runtime"
+        : "Local fallback";
+  const { agentActions, founderSignatures } = autonomyCounts(events, payment);
+  const settlementLabel = !payment
+    ? "Not funded"
+    : payment.status === "released"
+      ? "Released"
+      : payment.status === "refunded"
+        ? "Refunded"
+        : "Funded";
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-full border hairline bg-white px-5 py-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-[#71717a]">
+        <span
+          className={`whitespace-nowrap rounded-full px-3 py-1 font-medium ${
+            isCoral ? "bg-[#ecfdf5] text-[#047857]" : "bg-[#fffbeb] text-[#b45309]"
+          }`}
+        >
+          {modeLabel}
+        </span>
+        <span>
+          Settlement: <span className="font-medium text-[#27272a]">{settlementLabel}</span>
+        </span>
+        <span>
+          {agentActions} agent actions · {founderSignatures} founder signatures
+        </span>
+      </div>
+      <Link
+        className="whitespace-nowrap rounded-full bg-[#0a0a0a] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#27272a]"
+        href={`/proof/${campaignId}`}
+        target="_blank"
+      >
+        Open proof receipt →
+      </Link>
+    </div>
   );
 }
 
@@ -2325,6 +2586,34 @@ function SetupSection({
               </li>
             ))}
           </ol>
+
+          <div className="mt-10">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#71717a]">
+              What you get
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <OutcomePreviewCard
+                body={
+                  "“We just shipped X — put it to the test.” Ready to edit, schedule, or publish."
+                }
+                title="Launch thread"
+              />
+              <OutcomePreviewCard
+                body={
+                  "Pre-written answers to “what changed?” and “is this live?” so you’re never caught flat-footed."
+                }
+                title="Founder replies"
+              />
+              <OutcomePreviewCard
+                body="Review, release escrow, schedule posts, and plan the next campaign — one list."
+                title="Launch checklist"
+              />
+            </div>
+            <p className="mt-3 text-xs leading-5 text-[#a1a1aa]">
+              Example output — your delivery is grounded in your own
+              repository, not a template.
+            </p>
+          </div>
         </header>
 
         <form
@@ -2421,6 +2710,9 @@ function SetupSection({
                   SOL
                 </span>
               </div>
+              <span className="text-xs leading-5 text-[#a1a1aa]">
+                Specialist bids typically range 0.3–0.8 SOL for a single launch.
+              </span>
             </label>
 
             <label className="grid gap-2">
@@ -2515,6 +2807,92 @@ function MorningUpdate({
   );
 }
 
+// Post-delivery execution loop: appears as soon as a specialist has
+// delivered and stays visible through escrow release, scheduling, and the
+// employee's next-campaign plan. This turns the delivery into a checklist
+// instead of a one-shot AI output.
+function LaunchChecklistPanel({
+  delivery,
+  isPlanningNext,
+  nextPlan,
+  onPlanNext,
+  payment,
+  xPosts
+}: {
+  delivery: SpecialistDelivery;
+  isPlanningNext: boolean;
+  nextPlan: NextStepPlan | null;
+  onPlanNext: () => void;
+  payment: PaymentResult | null;
+  xPosts: ScheduledXPost[];
+}) {
+  const items = buildLaunchChecklist({
+    delivery,
+    isPlanningNext,
+    nextPlan,
+    payment,
+    xPosts
+  });
+  const doneCount = items.filter((item) => item.done).length;
+  const canPlanNext = payment?.status === "released" && !isPlanningNext;
+
+  return (
+    <div className="mb-10 rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-[#71717a]">
+            Launch checklist
+          </p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-[#52525b]">
+            This turns the delivery into an execution loop, not a one-shot AI
+            output.
+          </p>
+        </div>
+        <span className="rounded-full bg-[#f4f4f5] px-3 py-1.5 text-xs font-medium text-[#52525b]">
+          {doneCount}/{items.length} done
+        </span>
+      </div>
+      <div className="mt-5 grid gap-2">
+        {items.map((item) => (
+          <div
+            className={`flex flex-wrap items-start gap-3 rounded-2xl px-4 py-3 ${
+              item.done ? "bg-[#f4f4f5]" : "border hairline bg-white"
+            }`}
+            key={item.id}
+          >
+            <span
+              aria-hidden="true"
+              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${
+                item.done
+                  ? "bg-[#0a0a0a] text-white"
+                  : "border hairline text-transparent"
+              }`}
+            >
+              ✓
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-[#18181b]">{item.title}</p>
+              <p className="mt-0.5 text-xs leading-5 text-[#71717a]">
+                {item.detail}
+              </p>
+            </div>
+            {item.id === "plan-next" && !item.done ? (
+              <button
+                className="shrink-0 rounded-full bg-[#0a0a0a] px-3 py-1.5 text-xs font-medium text-white transition hover:bg-[#27272a] disabled:opacity-50"
+                disabled={!canPlanNext}
+                onClick={onPlanNext}
+                type="button"
+              >
+                {isPlanningNext ? "Planning..." : "Plan next campaign"}
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function GuidedResultFlow({
   activeStage,
   analyticsMetrics,
@@ -2546,6 +2924,7 @@ function GuidedResultFlow({
   onEditAsset,
   onMarkPublishedManual,
   onOpenProfile,
+  onPlanNext,
   onPublishNow,
   onRate,
   onRefund,
@@ -2558,6 +2937,7 @@ function GuidedResultFlow({
   onScheduleOne,
   payment,
   publishingPostId,
+  readiness,
   releaseStatus,
   repositoryAnalysis,
   repositoryContext,
@@ -2611,6 +2991,7 @@ function GuidedResultFlow({
     text?: string;
   }) => Promise<void>;
   onOpenProfile: (id: SpecialistId) => void;
+  onPlanNext: () => void;
   onRate: (rating: number) => Promise<void>;
   onRefund: () => Promise<void>;
   onRelease: () => Promise<void>;
@@ -2626,6 +3007,7 @@ function GuidedResultFlow({
   }) => Promise<void>;
   payment: PaymentResult | null;
   publishingPostId: string | null;
+  readiness: DeliveryReadiness | null;
   releaseStatus: ReleaseStatus;
   repositoryAnalysis: RepositoryAnalysis;
   repositoryContext: GitHubRepositoryContext;
@@ -2704,6 +3086,15 @@ function GuidedResultFlow({
         ) : null}
       </div>
 
+      <LaunchChecklistPanel
+        delivery={delivery}
+        isPlanningNext={isPlanningNext}
+        nextPlan={nextPlan}
+        onPlanNext={onPlanNext}
+        payment={payment}
+        xPosts={xPosts}
+      />
+
       <div className="enter">
         {activeStage === "opportunity" ? (
           <LaunchOpportunitySection
@@ -2765,6 +3156,7 @@ function GuidedResultFlow({
 
         {activeStage === "payment" ? (
           <EscrowSection
+            campaignId={campaign.id}
             connected={connected}
             deliveryRating={deliveryRating}
             error={error}
@@ -2776,6 +3168,7 @@ function GuidedResultFlow({
             balanceSol={balanceSol}
             budgetStatus={campaign.budgetStatus}
             escrowConfig={escrowConfig}
+            readiness={readiness}
             releaseStatus={releaseStatus}
             winningBid={campaign.winningBid}
           />
@@ -2846,6 +3239,18 @@ function SignalRow({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl bg-[#f4f4f5] px-4 py-3">
       <p className="text-xs font-medium text-[#71717a]">{label}</p>
       <p className="mt-1 text-sm leading-6 text-[#27272a]">{value}</p>
+    </div>
+  );
+}
+
+// Static example of what a delivery looks like, shown on setup before any
+// GitHub/wallet connection — so a founder sees the outcome before doing work
+// to get there.
+function OutcomePreviewCard({ body, title }: { body: string; title: string }) {
+  return (
+    <div className="rounded-2xl border hairline bg-[#fafafa] p-4">
+      <p className="text-xs font-medium text-[#18181b]">{title}</p>
+      <p className="mt-1.5 text-xs leading-5 text-[#71717a]">{body}</p>
     </div>
   );
 }
@@ -2935,7 +3340,7 @@ function LaunchOpportunitySection({
           onClick={() => setActiveStage("specialist")}
           type="button"
         >
-          See who the employee hired
+          Review the bids
         </button>
       </div>
     </section>
@@ -3123,6 +3528,13 @@ function SpecialistSelectionSection({
                         value={confidence}
                       />
                     </div>
+                    <StrategyFieldsGrid
+                      channel={bid.channel}
+                      dark={selected}
+                      successMetric={bid.successMetric}
+                      targetAudience={bid.targetAudience}
+                      timing={bid.timing}
+                    />
                     <div
                       className={`mt-4 rounded-2xl p-3 text-sm leading-6 ${
                         selected
@@ -3284,15 +3696,21 @@ function EscrowQuotePanel({
   warning: boolean;
 }) {
   return (
-    <div
-      className={`mt-4 grid gap-3 rounded-2xl p-3 text-xs ${
+    <details
+      className={`mt-4 rounded-2xl p-3 text-xs ${
         dark ? "bg-white/10 text-[#e4e4e7]" : "bg-[#f4f4f5] text-[#52525b]"
       }`}
     >
-      <p className={dark ? "font-medium text-white" : "font-medium text-[#27272a]"}>
-        Escrow split before signing
-      </p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <summary
+        className={`cursor-pointer list-none font-medium ${
+          dark ? "text-white" : "text-[#27272a]"
+        }`}
+      >
+        {formatSol(quote.specialistAmountSol)} to specialist ·{" "}
+        {formatSol(quote.treasuryFeeSol)} treasury fee · refundable after{" "}
+        {formatEscrowDeadline(quote.deadlineUnix)}
+      </summary>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <BidMeta dark={dark} label="Total locked" value={formatSol(quote.totalSol)} />
         <BidMeta
           dark={dark}
@@ -3313,12 +3731,12 @@ function EscrowQuotePanel({
         <BidMeta dark={dark} label="Relix treasury wallet" value={treasuryWallet} />
       </div>
       {warning ? (
-        <p className={dark ? "text-[#fde68a]" : "text-[#92400e]"}>
+        <p className={`mt-3 ${dark ? "text-[#fde68a]" : "text-[#92400e]"}`}>
           Specialist wallet and Relix treasury wallet are the same. Use separate
           devnet accounts for a clearer demo.
         </p>
       ) : null}
-    </div>
+    </details>
   );
 }
 
@@ -3339,6 +3757,61 @@ function BidMeta({
           dark ? "text-[#f4f4f5]" : "text-[#18181b]"
         }`}
       >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+// The four structured strategy fields (target audience, channel, timing,
+// success metric) shown on both bid cards and the delivery view, so a
+// founder can compare specialists at a glance instead of reading prose.
+function StrategyFieldsGrid({
+  channel,
+  dark,
+  successMetric,
+  targetAudience,
+  timing
+}: {
+  channel: string;
+  dark: boolean;
+  successMetric: string;
+  targetAudience: string;
+  timing: string;
+}) {
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-2">
+      <StrategyMeta dark={dark} label="Target audience" value={targetAudience} />
+      <StrategyMeta dark={dark} label="Channel" value={channel} />
+      <StrategyMeta dark={dark} label="Timing" value={timing} />
+      <StrategyMeta dark={dark} label="Success metric" value={successMetric} />
+    </div>
+  );
+}
+
+function StrategyMeta({
+  dark,
+  label,
+  value
+}: {
+  dark: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      className={`rounded-2xl p-3 text-xs leading-5 ${
+        dark ? "bg-white/10" : "bg-[#f4f4f5]"
+      }`}
+    >
+      <p
+        className={`font-medium uppercase tracking-[0.1em] ${
+          dark ? "text-[#a1a1aa]" : "text-[#71717a]"
+        }`}
+      >
+        {label}
+      </p>
+      <p className={`mt-1 ${dark ? "text-[#e4e4e7]" : "text-[#52525b]"}`}>
         {value}
       </p>
     </div>
@@ -3776,6 +4249,16 @@ function SpecialistDeliverySection({
           <p className="mt-4 max-w-4xl text-sm leading-6 text-[#71717a]">
             Source: {assets.repository}. {assets.sourceSummary}
           </p>
+          <p className="mt-6 text-xs font-medium uppercase tracking-[0.14em] text-[#71717a]">
+            Strategy
+          </p>
+          <StrategyFieldsGrid
+            channel={delivery.channel}
+            dark={false}
+            successMetric={delivery.successMetric}
+            targetAudience={delivery.targetAudience}
+            timing={delivery.timing}
+          />
         </div>
 
         {showRewardLadder ? (
@@ -4167,6 +4650,7 @@ function PostHistory({
 function EscrowSection({
   balanceSol,
   budgetStatus,
+  campaignId,
   connected,
   deliveryRating,
   escrowConfig,
@@ -4176,11 +4660,13 @@ function EscrowSection({
   isRatingDelivery,
   onRefund,
   onRate,
+  readiness,
   releaseStatus,
   onRelease
 }: {
   balanceSol: number | null;
   budgetStatus: CampaignPlan["budgetStatus"];
+  campaignId: string;
   connected: boolean;
   deliveryRating: number | null;
   escrowConfig: RelixEscrowConfig;
@@ -4190,6 +4676,7 @@ function EscrowSection({
   isRatingDelivery: boolean;
   onRefund: () => Promise<void>;
   onRate: (rating: number) => Promise<void>;
+  readiness: DeliveryReadiness | null;
   releaseStatus: ReleaseStatus;
   onRelease: () => Promise<void>;
 }) {
@@ -4262,10 +4749,24 @@ function EscrowSection({
     <section className="mx-auto max-w-3xl">
       <SectionHeading kicker="Real devnet escrow · founder approval" title={title} />
       <div className="mt-8 rounded-[2rem] border hairline bg-white p-7 soft-shadow">
+        {readiness ? (
+          <p className="mb-5 rounded-2xl bg-[#f4f4f5] px-4 py-3 text-sm leading-6 text-[#52525b]">
+            {readiness.ready
+              ? `✓ Growth Employee verified ${readiness.checks.filter((check) => check.passed).length}/${readiness.checks.length} readiness checks — signed and attested.`
+              : `Growth Employee ran the readiness check: ${readiness.checks.filter((check) => check.passed).length}/${readiness.checks.length} passed. This is advisory — you still decide.`}{" "}
+            <Link
+              className="font-medium text-[#2563eb] underline underline-offset-2 hover:no-underline"
+              href={`/proof/${campaignId}`}
+              target="_blank"
+            >
+              See the full attestation
+            </Link>
+          </p>
+        ) : null}
         <p className="mb-7 text-base leading-7 text-[#52525b]">
           {payment
-            ? "The specialist delivered after escrow funding. Releasing escrow is the founder's approval — it pays the specialist and the Relix treasury from the vault in one transaction. If the founder doesn't release, a refund becomes available after the deadline."
-            : "Once escrow is locked and the specialist delivers, releasing escrow is the founder's approval — it pays the specialist and the Relix treasury from the vault in one transaction."}
+            ? "The specialist delivered after escrow funding, and the work is marked ready for release. Releasing escrow is the founder's approval — the safety release gate — and it pays the specialist and the Relix treasury from the vault in one transaction. Release is never autonomous. If the founder doesn't release, a refund becomes available after the deadline."
+            : "Once escrow is locked and the specialist delivers, releasing escrow is the founder's approval — the safety release gate — and it pays the specialist and the Relix treasury from the vault in one transaction. Release is never autonomous."}
         </p>
         <div className="mb-7 grid gap-3 rounded-2xl bg-[#f4f4f5] p-4 text-sm text-[#52525b]">
           <p>{budgetStatus.message}</p>
@@ -4331,15 +4832,15 @@ function EscrowSection({
                 <ProofRow label="Escrow vault" value={payment.vault} />
                 <ProofRow
                   label="Total locked"
-                  value={`${formatSol(payment.settlementSol)} SOL`}
+                  value={formatSol(payment.settlementSol)}
                 />
                 <ProofRow
                   label="Specialist payout"
-                  value={`${formatSol(payment.specialistAmountSol)} SOL`}
+                  value={formatSol(payment.specialistAmountSol)}
                 />
                 <ProofRow
                   label="Relix treasury fee"
-                  value={`${formatSol(payment.treasuryFeeSol)} SOL · ${payment.feeBps} bps`}
+                  value={`${formatSol(payment.treasuryFeeSol)} · ${payment.feeBps} bps`}
                 />
                 <ProofRow label="Status" value={escrowStatusLabel(payment.status)} />
               </div>
@@ -5649,8 +6150,12 @@ async function deliverCampaign(
 
     return data.delivery;
   } catch {
+    // Placeholder bid: deliver() implementations use `request` (the job
+    // context), not this bid, to build the delivery — these values are
+    // never read, only present to satisfy the Bid type.
     return getSpecialistAdapter(specialistId).deliver({
       bid: {
+        channel: "",
         createdAt: new Date().toISOString(),
         deliverables: [],
         deliveryDays: 0,
@@ -5659,10 +6164,46 @@ async function deliverCampaign(
         priceSol: 0,
         reasoning: "",
         risk: "",
-        specialistId
+        specialistId,
+        successMetric: "",
+        targetAudience: "",
+        timing: ""
       },
       request: jobContext
     });
+  }
+}
+
+// Best-effort call to the Growth Employee's delivery readiness check. Returns
+// null on any failure so the founder flow is never blocked by verification.
+async function requestDeliveryReadiness(body: {
+  awardedBidId: string;
+  specialistId: string;
+  delivery: SpecialistDelivery;
+  jobContext: { jobId: string; goal: string };
+  escrowFunded: boolean;
+  coordinationMode: CampaignPlan["coordinationMode"];
+  coralSessionId?: string;
+  coralThreadId?: string;
+}): Promise<DeliveryReadiness | null> {
+  try {
+    const response = await fetch("/api/campaign/readiness", {
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+      method: "POST"
+    });
+    const data = (await response.json()) as {
+      readiness?: DeliveryReadiness;
+      error?: string;
+    };
+
+    if (!response.ok || !data.readiness) {
+      return null;
+    }
+
+    return data.readiness;
+  } catch {
+    return null;
   }
 }
 
@@ -5747,6 +6288,94 @@ function deliveryBlocksFrom(delivery: SpecialistDelivery): DeliveryAssetBlock[] 
       text: block.text
     }))
   );
+}
+
+// Turns the delivery into an execution loop, not a one-shot AI output: five
+// steps from "the assets exist" through to "the employee is already planning
+// the next campaign." Every `done` flag reads existing state — escrow
+// status, scheduled/published X posts, and the next-step plan — so there is
+// nothing new to persist.
+function buildLaunchChecklist({
+  delivery,
+  isPlanningNext,
+  nextPlan,
+  payment,
+  xPosts
+}: {
+  delivery: SpecialistDelivery;
+  isPlanningNext: boolean;
+  nextPlan: NextStepPlan | null;
+  payment: PaymentResult | null;
+  xPosts: ScheduledXPost[];
+}): LaunchChecklistItem[] {
+  const blocks = deliveryBlocksFrom(delivery);
+  const launchThreadIds = new Set(
+    blocks
+      .filter((block) => block.section === "Launch Thread")
+      .map((block) => block.id)
+  );
+  const followUpIds = new Set(
+    blocks.filter((block) => block.kind === "follow-up").map((block) => block.id)
+  );
+  const isLive = (status: ScheduledXPost["status"]) =>
+    status === "scheduled" || status === "published";
+  const launchPostsLive = xPosts.some(
+    (post) => launchThreadIds.has(post.sourceId || "") && isLive(post.status)
+  );
+  const followUpLive = xPosts.some(
+    (post) => followUpIds.has(post.sourceId || "") && isLive(post.status)
+  );
+
+  return [
+    {
+      detail: "The specialist's launch assets are ready for founder review.",
+      done: true,
+      id: "review-delivery",
+      title: "Review delivery"
+    },
+    {
+      detail:
+        payment?.status === "released"
+          ? "Escrow released — the specialist and treasury were paid."
+          : payment?.status === "refunded"
+            ? "Escrow was refunded instead of released."
+            : "Sign release_escrow in Phantom once you're happy with the delivery.",
+      done: payment?.status === "released",
+      id: "release-escrow",
+      title: "Release escrow"
+    },
+    {
+      detail: launchPostsLive
+        ? "Launch posts are scheduled or published."
+        : "Schedule the launch thread, or publish it now, from the delivery view.",
+      done: launchPostsLive,
+      id: "schedule-posts",
+      title: "Schedule or publish launch posts"
+    },
+    {
+      detail:
+        followUpIds.size === 0
+          ? "No follow-up post in this delivery."
+          : followUpLive
+            ? "Follow-up post is scheduled or published."
+            : "Schedule the follow-up post for after the launch window.",
+      done: followUpIds.size === 0 || followUpLive,
+      id: "follow-up-post",
+      title: "Send follow-up post"
+    },
+    {
+      detail: nextPlan
+        ? nextPlan.recommendation
+        : isPlanningNext
+          ? "The Growth Employee is planning the next campaign…"
+          : payment?.status === "released"
+            ? "Plan the next campaign cycle now, or wait — it also runs automatically after release."
+            : "Available once escrow is released.",
+      done: Boolean(nextPlan),
+      id: "plan-next",
+      title: "Plan next campaign"
+    }
+  ];
 }
 
 function websiteNotProvided(): WebsiteAnalysis {

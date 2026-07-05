@@ -210,7 +210,11 @@ export async function generateDelivery(
 ): Promise<{ aiGenerated: boolean; delivery: SpecialistDelivery }> {
   const adapter = getSpecialistAdapter(specialistId);
   const base = await adapter.deliver({
+    // Placeholder bid: deliver() implementations use `request` (the job
+    // context), not this bid, to build the delivery — these values are never
+    // read, only present to satisfy the Bid type.
     bid: {
+      channel: "",
       createdAt: new Date().toISOString(),
       deliverables: [],
       deliveryDays: 0,
@@ -219,7 +223,10 @@ export async function generateDelivery(
       priceSol: 0,
       reasoning: "",
       risk: "",
-      specialistId
+      specialistId,
+      successMetric: "",
+      targetAudience: "",
+      timing: ""
     },
     request: context
   });
@@ -261,6 +268,7 @@ Respond with a JSON object only, in exactly this shape:
     return {
       aiGenerated: true,
       delivery: {
+        ...base,
         report: cleanString(result.report, base.report),
         sections: base.sections.map((section) => ({
           ...section,
@@ -272,8 +280,7 @@ Respond with a JSON object only, in exactly this shape:
               text: block.kind === "tweet" ? clampTweet(next) : next
             };
           })
-        })),
-        specialistId: base.specialistId
+        }))
       }
     };
   } catch {

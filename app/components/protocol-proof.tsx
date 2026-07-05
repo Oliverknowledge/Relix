@@ -1,7 +1,20 @@
 import type { ReactNode } from "react";
-import type { CampaignPlan, PaymentResult } from "@/app/lib/campaign";
+import type { Bid, CampaignPlan, PaymentResult } from "@/app/lib/campaign";
 import { getSpecialistAgent } from "@/app/lib/specialist-agents";
 import { getRelixEscrowConfig } from "@/app/lib/relix-escrow";
+import type { DeliveryReadiness } from "@/app/lib/delivery-readiness";
+import type { MarketEvent } from "@/app/lib/market-events";
+
+// The panel only ever reads these three fields off the plan, so it accepts
+// this narrow, structurally-compatible shape instead of the full CampaignPlan
+// — that lets the standalone proof page (which has no live CampaignPlan, only
+// a persisted ProofReceipt) build one without reconstructing bid selection,
+// budget status, or job context it doesn't have.
+export type ProtocolProofPlan = {
+  coordinationMode: CampaignPlan["coordinationMode"];
+  coralProof?: CampaignPlan["coralProof"];
+  winningBid: Pick<Bid, "id" | "specialistId">;
+};
 
 // Judge-facing panel: states, for THIS run, exactly how the marketplace was
 // coordinated and how it settles on Solana. When CoralOS ran, it shows the real
@@ -9,10 +22,14 @@ import { getRelixEscrowConfig } from "@/app/lib/relix-escrow";
 // plainly that CoralOS was not used and the local fallback ran.
 export function ProtocolProofPanel({
   plan,
-  payment
+  payment,
+  readiness,
+  events
 }: {
-  plan: CampaignPlan;
+  plan: ProtocolProofPlan;
   payment: PaymentResult | null;
+  readiness?: DeliveryReadiness | null;
+  events?: MarketEvent[];
 }) {
   const hosted = plan.coordinationMode === "coralos-hosted";
   const coral =
@@ -42,6 +59,8 @@ export function ProtocolProofPanel({
       </div>
 
       <StrongBanner mode={plan.coordinationMode} />
+
+      <AutonomyLedger events={events} payment={payment} />
 
       {/* Coordination layer */}
       <Section title="CoralOS market coordination">
@@ -79,6 +98,9 @@ export function ProtocolProofPanel({
           value={`${plan.winningBid.id}  (${awardedSpecialist?.name ?? plan.winningBid.specialistId})`}
         />
       </Section>
+
+      {/* Delivery verification layer */}
+      {readiness ? <DeliveryReadinessSection readiness={readiness} /> : null}
 
       {/* Settlement layer */}
       <Section title="Anchor escrow settlement (Solana devnet)">
@@ -167,6 +189,144 @@ function StrongBanner({ mode }: { mode: CampaignPlan["coordinationMode"] }) {
     >
       {message}
     </div>
+  );
+}
+
+// The honest reframe of "human-in-the-loop": the agents do the work; the founder
+// holds a small number of deliberate safety signatures. Counts are derived live
+// from the run's own market events and on-chain escrow state — nothing invented.
+// Exported so the main page's compact VerifiedRunStrip can show the same two
+// numbers without duplicating the counting logic.
+export function autonomyCounts(
+  events: MarketEvent[] | undefined,
+  payment: PaymentResult | null
+): { agentActions: number; founderSignatures: number } {
+  if (!events || events.length === 0) {
+    return { agentActions: 0, founderSignatures: 0 };
+  }
+
+  // Autonomous agent steps: everything driven by the buyer/seller agents and the
+  // marketplace. Founder rows and pure system/settlement rows are excluded.
+  const agentActions = events.filter(
+    (event) =>
+      event.actor === "growth_employee" ||
+      event.actor === "seller" ||
+      event.actor === "marketplace"
+  ).length;
+
+  // Founder Phantom signatures = the real on-chain approvals: fund (once escrow
+  // exists) plus whichever terminal signature happened (release or refund).
+  const founderSignatures =
+    (payment ? 1 : 0) +
+    (payment?.status === "released" ? 1 : 0) +
+    (payment?.status === "refunded" ? 1 : 0);
+
+  return { agentActions, founderSignatures };
+}
+
+function AutonomyLedger({
+  events,
+  payment
+}: {
+  events?: MarketEvent[];
+  payment: PaymentResult | null;
+}) {
+  if (!events || events.length === 0) {
+    return null;
+  }
+
+  const { agentActions, founderSignatures } = autonomyCounts(events, payment);
+
+  return (
+    <div className="mt-5 grid gap-3 rounded-2xl border hairline bg-[#fafafa] p-4 sm:grid-cols-2">
+      <div>
+        <p className="text-3xl font-semibold tracking-[-0.02em] text-[#18181b]">
+          {agentActions}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-[#71717a]">
+          Autonomous agent actions — source, compete, award, deliver, verify.
+        </p>
+      </div>
+      <div>
+        <p className="text-3xl font-semibold tracking-[-0.02em] text-[#18181b]">
+          {founderSignatures}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-[#71717a]">
+          Founder safety signatures (Phantom){" "}
+          {founderSignatures > 0
+            ? `— ${founderSignatures === 1 ? "fund" : "fund + release/refund"}`
+            : "— none yet"}
+          . The founder holds the release gate; the agents run everything else.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// The Growth Employee's delivery readiness check — advisory, agent-signed, and
+// explicitly NOT the release gate. Shown between coordination and settlement so
+// the "agents verify, founder signs" story reads top-to-bottom.
+function DeliveryReadinessSection({
+  readiness
+}: {
+  readiness: DeliveryReadiness;
+}) {
+  return (
+    <Section title="Delivery readiness check (Growth Employee · buyer agent)">
+      <div
+        className={`rounded-2xl px-4 py-3 text-sm font-medium ${
+          readiness.ready
+            ? "bg-[#ecfdf5] text-[#065f46]"
+            : "bg-[#fffbeb] text-[#b45309]"
+        }`}
+      >
+        {readiness.ready
+          ? "Ready for release — the Growth Employee verified the delivery."
+          : "Not ready — see failed checks below."}
+      </div>
+      <dl className="mt-2 grid gap-2">
+        {readiness.checks.map((check) => (
+          <div
+            key={check.id}
+            className="flex flex-wrap items-baseline justify-between gap-2 rounded-2xl border hairline px-4 py-2.5 text-sm"
+          >
+            <dt className="text-[#71717a]">
+              {check.passed ? "✓" : "✗"} {check.label}
+            </dt>
+            {check.note ? (
+              <dd className="text-right text-xs text-[#a1a1aa]">{check.note}</dd>
+            ) : null}
+          </div>
+        ))}
+      </dl>
+      {readiness.attestation ? (
+        <>
+          <Mono
+            label="Agent-signed attestation · signer pubkey"
+            value={readiness.attestation.agentPubkey}
+          />
+          <Mono
+            label={
+              readiness.attestation.onChain
+                ? "On-chain attestation tx (devnet memo)"
+                : "Agent signature (ed25519, off-chain)"
+            }
+            value={
+              readiness.attestation.onChain && readiness.attestation.txSignature
+                ? readiness.attestation.txSignature
+                : readiness.attestation.signature
+            }
+            explorer={readiness.attestation.explorerUrl}
+          />
+        </>
+      ) : null}
+      <p className="mt-1 text-xs leading-5 text-[#a1a1aa]">
+        The Growth Employee&apos;s readiness check marks the delivery ready; the
+        founder signs the final escrow release. This check is advisory and moves
+        no money — it never releases escrow. The agent key that signs the
+        attestation cannot touch the escrow vault.
+      </p>
+    </Section>
   );
 }
 

@@ -19,9 +19,12 @@ data/published-specialists.json
 data/reward-ladder.json
 data/prize-pool.json
 data/market-events.json
+data/proof-receipts.json
 data/agent-treasury.json
 data/coralos/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.vercel
+.env*

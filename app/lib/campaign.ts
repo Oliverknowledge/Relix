@@ -133,7 +133,7 @@ export const defaultFounderRequest: FounderRequest = {
   description:
     "A fast session, mobile-first strategy battler where squads are built from tradable onchain units.",
   goal: "Get 500 waitlist signups.",
-  budgetSol: 10,
+  budgetSol: 1,
   deadline: "2026-07-18",
   constraints:
     "Keep founder review before public posts. No paid bots. No fake engagement.",

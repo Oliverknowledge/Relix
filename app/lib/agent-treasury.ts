@@ -19,6 +19,10 @@ import { dataDirectory, dataPath } from "@/app/lib/data-path";
 // Devnet-only, low-value. The secret can be provided via env for a stable
 // funded wallet, or auto-generated and persisted to the gitignored data dir so
 // it survives dev restarts. A tiny top-up buffer over the transfer covers fees.
+//
+// This treasury only funds the capped reward-ladder/prize payouts. It is NOT
+// founder escrow custody: founder escrow is held by the Anchor program's vault
+// PDA and released only by the founder's Phantom signature (see relix-escrow.ts).
 
 const FEE_BUFFER_LAMPORTS = 10_000;
 const AIRDROP_LAMPORTS = LAMPORTS_PER_SOL; // 1 SOL top-up when the treasury runs low.

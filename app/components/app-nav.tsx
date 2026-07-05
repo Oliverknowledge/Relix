@@ -70,8 +70,19 @@ export function AppNav() {
         }
       });
 
+    const subscriptionId = connection.onAccountChange(
+      publicKey,
+      (accountInfo) => {
+        if (!cancelled) {
+          setBalanceSol(accountInfo.lamports / LAMPORTS_PER_SOL);
+        }
+      },
+      "confirmed"
+    );
+
     return () => {
       cancelled = true;
+      connection.removeAccountChangeListener(subscriptionId);
     };
   }, [connection, publicKey]);
 

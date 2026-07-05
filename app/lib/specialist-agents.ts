@@ -41,6 +41,10 @@ export type SpecialistJobContext = {
 };
 
 export type Bid = {
+  // Structured strategy fields, alongside the free-text reasoning/risk. All
+  // four are derived deterministically from job context already computed
+  // elsewhere in this file — never invented numbers or predictions.
+  channel: string;
   createdAt: string;
   deliverables: string[];
   deliveryDays: number;
@@ -50,6 +54,9 @@ export type Bid = {
   reasoning: string;
   risk: string;
   specialistId: SpecialistId;
+  successMetric: string;
+  targetAudience: string;
+  timing: string;
 };
 
 export type SpecialistDeliveryBlock = {
@@ -66,9 +73,15 @@ export type SpecialistDeliverySection = {
 };
 
 export type SpecialistDelivery = {
+  // Same structured strategy fields as Bid — carried through from bid to
+  // delivery so the founder sees a consistent strategy, not just assets.
+  channel: string;
   report: string;
   sections: SpecialistDeliverySection[];
   specialistId: SpecialistId;
+  successMetric: string;
+  targetAudience: string;
+  timing: string;
 };
 
 export type SpecialistAgent = {
@@ -327,6 +340,7 @@ function genericBid(agent: SpecialistAgent, context: SpecialistJobContext): Bid 
   const capabilityText = agent.capabilities.slice(0, 3).join(", ");
 
   return {
+    ...genericStrategyFields(agent, context),
     createdAt: new Date().toISOString(),
     deliverables: genericDeliverables(agent),
     deliveryDays: agent.deliveryDays,
@@ -355,6 +369,7 @@ function genericDelivery(
   const capabilityText = agent.capabilities.join(", ") || "growth work";
 
   return {
+    ...genericStrategyFields(agent, context),
     report: `${agent.name} prepared a launch pack for "${shorten(
       context.launchChange,
       70
@@ -450,11 +465,15 @@ function tournamentBid(context: SpecialistJobContext): Bid {
   const agent = tournamentAgent;
   const change = shorten(context.launchChange, 80);
   const rushed = context.daysRemaining <= agent.deliveryDays;
+  const deliveryDays = rushed
+    ? Math.max(2, context.daysRemaining - 1)
+    : agent.deliveryDays;
   const analyticsLine = context.analyticsConnected
     ? ` ${context.analyticsSummary} — a deadline gives those visitors a reason to convert now.`
     : "";
 
   return {
+    ...tournamentStrategyFields(context, deliveryDays),
     createdAt: new Date().toISOString(),
     deliverables: [
       "Launch thread",
@@ -463,9 +482,7 @@ function tournamentBid(context: SpecialistJobContext): Bid {
       "Founder replies",
       "Follow-up post"
     ],
-    deliveryDays: rushed
-      ? Math.max(2, context.daysRemaining - 1)
-      : agent.deliveryDays,
+    deliveryDays,
     id: bidIdFor(context.jobId, agent.id),
     jobId: context.jobId,
     priceSol: priceFromBudget(context.budgetSol, 0.38, agent.basePriceSol),
@@ -499,6 +516,7 @@ function referralBid(context: SpecialistJobContext): Bid {
         )}.`;
 
   return {
+    ...referralStrategyFields(context, agent.deliveryDays),
     createdAt: new Date().toISOString(),
     deliverables: [
       "Referral mechanics",
@@ -532,6 +550,7 @@ function communityBid(context: SpecialistJobContext): Bid {
     : "";
 
   return {
+    ...communityStrategyFields(context, agent.deliveryDays),
     createdAt: new Date().toISOString(),
     deliverables: [
       "Community announcement",
@@ -559,6 +578,7 @@ function tournamentDelivery(context: SpecialistJobContext): SpecialistDelivery {
   const cta = ctaOr(context);
 
   return {
+    ...tournamentStrategyFields(context, eventDays),
     report: `I packaged "${shorten(
       context.launchChange,
       70
@@ -652,6 +672,7 @@ function referralDelivery(context: SpecialistJobContext): SpecialistDelivery {
   const cta = ctaOr(context);
 
   return {
+    ...referralStrategyFields(context, referralAgent.deliveryDays),
     report: `I designed an invite loop that turns each signup from ${cta} into the next one, sized for ${focus} and grounded in ${lowerFirst(
       change
     )}.`,
@@ -746,6 +767,7 @@ function communityDelivery(context: SpecialistJobContext): SpecialistDelivery {
   const cta = ctaOr(context);
 
   return {
+    ...communityStrategyFields(context, communityAgent.deliveryDays),
     report: `I wrote the founder-led community pack for "${shorten(
       context.launchChange,
       70
@@ -881,6 +903,95 @@ function goalFocus(goal: string) {
   const cleaned = goal.trim().replace(/[.!?]+$/, "");
 
   return cleaned ? lowerFirst(cleaned) : "the growth goal";
+}
+
+// Structured strategy fields shared by Bid and SpecialistDelivery. Always
+// derived from job context the app already computed — never a fabricated
+// number. successMetric in particular is always the founder's own stated
+// goal, not a specialist's prediction of results.
+type StrategyFields = Pick<
+  Bid,
+  "channel" | "successMetric" | "targetAudience" | "timing"
+>;
+
+function goalSuccessMetric(context: SpecialistJobContext) {
+  return `Measured against your goal: ${goalFocus(context.goal)}`;
+}
+
+function timingLine(
+  deliveryDays: number,
+  daysRemaining: number,
+  startNote: string
+) {
+  return deliveryDays >= daysRemaining
+    ? `${startNote}; compressed to ~${deliveryDays} days to close inside your ${daysRemaining}-day deadline`
+    : `${startNote}; delivers in ~${deliveryDays} days, inside your ${daysRemaining}-day deadline`;
+}
+
+function tournamentStrategyFields(
+  context: SpecialistJobContext,
+  deliveryDays: number
+): StrategyFields {
+  return {
+    channel: `X launch thread + tournament announcement, entry via ${ctaOr(context)}`,
+    successMetric: goalSuccessMetric(context),
+    targetAudience: `Competitive players and fans around ${context.productArea} who need a deadline to come back`,
+    timing: timingLine(
+      deliveryDays,
+      context.daysRemaining,
+      "Opens as soon as you approve"
+    )
+  };
+}
+
+function referralStrategyFields(
+  context: SpecialistJobContext,
+  deliveryDays: number
+): StrategyFields {
+  return {
+    channel: `Personal invite links on X/DM, seeded from users who arrive via ${ctaOr(context)}`,
+    successMetric: goalSuccessMetric(context),
+    targetAudience: context.analyticsAudience
+      ? `Your existing signups already arriving via ${ctaOr(context)} — turned into inviters`
+      : `Early users who arrive via ${ctaOr(context)} once the first launch beat lands`,
+    timing: `Activates after your first launch post, not before; delivers in ~${deliveryDays} days, inside your ${context.daysRemaining}-day deadline`
+  };
+}
+
+function communityStrategyFields(
+  context: SpecialistJobContext,
+  deliveryDays: number
+): StrategyFields {
+  return {
+    channel: `Community announcement + founder-led replies, anchored at ${ctaOr(context)}`,
+    successMetric: goalSuccessMetric(context),
+    targetAudience: `Existing community members and followers — a trust-building audience, not cold traffic`,
+    timing: `Starts within ~${deliveryDays} days and stays live through the full ${context.daysRemaining}-day window (built for patience, not a spike)`
+  };
+}
+
+function genericStrategyFields(
+  agent: SpecialistAgent,
+  context: SpecialistJobContext
+): StrategyFields {
+  const channel = agent.capabilities.includes("invite-loops")
+    ? `Invite links shared by users who arrive via ${ctaOr(context)}`
+    : agent.capabilities.includes("community-briefs")
+      ? `Community announcement anchored at ${ctaOr(context)}`
+      : `X launch thread, entry via ${ctaOr(context)}`;
+
+  return {
+    channel,
+    successMetric: goalSuccessMetric(context),
+    targetAudience: `People arriving via ${ctaOr(context)}, matched to this seller's ${
+      agent.capabilities.slice(0, 2).join(" and ") || "growth"
+    } focus`,
+    timing: timingLine(
+      agent.deliveryDays,
+      context.daysRemaining,
+      "Starts once approved"
+    )
+  };
 }
 
 function shorten(value: string, max: number) {

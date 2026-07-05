@@ -15,6 +15,7 @@ Nothing is posted without explicit founder approval. Nothing is paid to a specia
 - [Project Structure](#project-structure)
 - [How Relix Works](#how-relix-works)
 - [CoralOS Market Coordination](#coralos-market-coordination)
+- [Delivery Readiness Check](#delivery-readiness-check)
 - [Anchor Escrow Settlement](#anchor-escrow-settlement)
 - [Agent-Signed On-Chain Payouts](#agent-signed-on-chain-payouts)
 - [AI Agents](#ai-agents)
@@ -42,10 +43,11 @@ Buyer/seller coordination for that hire can run over **CoralOS** — the real Co
 
 A few things worth knowing before you judge the demo:
 
+- **The agents run the marketplace; the founder holds the release gate.** The buyer and seller agents autonomously coordinate job creation, bidding, award recommendation, delivery, and proof. The one thing they cannot do is move the founder's money: **founder approval (a Phantom signature) is the safety release gate**, and only that signature releases escrow. The full chain is **GitHub context → CoralOS buyer/seller bids → awarded specialist → Anchor escrow → Explorer proof** — the AI-written launch assets are the *delivery layer* inside that chain, not the whole product.
 - **Founder escrow settlement is a separate system from agent-signed reward/prize payouts.** The escrow program (`programs/relix_escrow`) only moves funds when the founder signs `initialize_escrow`, `release_escrow`, or `refund_escrow` through Phantom. Nothing in escrow is signed by an agent.
-- **Reward ladders and prize payouts are signed by the Relix agent treasury**, a separate server-held devnet keypair (`RELIX_AGENT_TREASURY_SECRET`), with no human approval per payout — these are capped, on-chain, agent-signed bonuses layered on top of the marketplace, not part of founder settlement. They are badged "⛓ on-chain" in the UI to keep that distinction visible. See [Agent-Signed On-Chain Payouts](#agent-signed-on-chain-payouts).
-- **CoralOS coordinates buyer/seller agents; it does not hold keys or move money.** Every dollar (SOL) that moves is either signed by the founder through Phantom (escrow) or by the agent treasury keypair (reward ladders/prizes) — never by CoralOS.
-- **Escrow is native SOL only** for this hackathon MVP — one founder, one specialist, one treasury, no token escrow.
+- **Reward ladders and prize payouts are signed by the Relix agent treasury**, a separate server-held devnet keypair (`RELIX_AGENT_TREASURY_SECRET`), with no human approval per payout — these are capped, on-chain, agent-signed bonuses layered on top of the marketplace, not part of founder settlement. **`RELIX_AGENT_TREASURY_SECRET` is *only* for these capped devnet reward/prize payouts from a separate agent treasury — it is not founder escrow custody.** Founder escrow is controlled by the Anchor program and the founder's Phantom signature, never by this key. The payouts are badged "⛓ on-chain" in the UI to keep the distinction visible. See [Agent-Signed On-Chain Payouts](#agent-signed-on-chain-payouts).
+- **CoralOS coordinates buyer/seller agents; it does not hold keys or move money.** Every dollar (SOL) that moves is either signed by the founder through Phantom (escrow) or by the agent treasury keypair (reward ladders/prizes) — never by CoralOS. **The submitted demo runs on real (hosted or local) CoralOS and shows real session/thread/bid ids** in the Protocol Proof panel; the local fallback is only a reliability mode for serverless hosts (e.g. Vercel), and it is always labelled honestly as fallback — never dressed up as CoralOS.
+- **Escrow is native SOL only** for this hackathon MVP — one founder, one specialist, one treasury, no token escrow. **SPL/USDC escrow is a natural extension, not currently implemented or claimed.**
 - **What a production version would add:** a dispute/arbitration path for contested deliveries, and reputation-weighted settlement (e.g. staking, slashing, or graduated fee schedules tied to a specialist's track record). None of that exists today — disagreements currently resolve to either release or a deadline-gated refund, decided solely by the founder. See [Known Limitations & Roadmap](#known-limitations--roadmap).
 
 ## Quickstart
@@ -169,7 +171,7 @@ data/                            Local JSON persistence (gitignored, see Local D
 5. **The buyer recommends; the founder decides.** Deterministic scoring (budget/goal/repo fit, delivery ETA, capability match, reputation) selects a recommended bid; the founder can accept it or override with any other bid, as long as it fits the budget.
 6. **Escrow locks the money.** The founder signs `initialize_escrow` in Phantom. SOL moves into a vault PDA the Anchor program controls — not a wallet any human holds the key to.
 7. **The specialist delivers.** Only after escrow confirms does Relix generate the specialist's actual delivery (launch thread, tournament, referral loop, or community pack) — grounded in the same repository/website/analytics context.
-8. **The founder reviews, then releases.** The founder reviews the delivered assets, then signs `release_escrow`, which splits the vault between the specialist owner wallet and the Relix treasury wallet in one transaction — or signs `refund_escrow` after the deadline if the specialist never delivered.
+8. **Delivery is marked ready for release; the founder reviews, then releases.** Once the specialist's assets and proof are in, the run is surfaced as **ready for release** — a delivery check the founder can inspect. Final escrow release is never autonomous: the founder reviews the delivered assets, then signs `release_escrow`, which splits the vault between the specialist owner wallet and the Relix treasury wallet in one transaction — or signs `refund_escrow` after the deadline if the specialist never delivered. **Founder approval (the Phantom signature) is the safety release gate.**
 9. **The founder publishes.** Approved launch posts can be scheduled or published immediately to the connected X account.
 10. **Everything is recorded.** The Market Activity timeline and Protocol Proof panel show the full chain — job → bid → award → escrow funded → delivery → release/refund — with real ids, wallets, amounts, and Solana Explorer links.
 
@@ -207,6 +209,16 @@ Relix uses **CoralOS as the primary coordination layer for the agent marketplace
 
 **Full judge runbook:** see [docs/DEMO.md](docs/DEMO.md) for the complete local demo (start Coral Server, register agents, verify, run Relix, and confirm the Protocol Proof panel shows the CoralOS session/thread/bid ids next to the escrow account/vault/Explorer links).
 
+## Delivery Readiness Check
+
+After a specialist delivers, the **Growth Employee (buyer agent) runs a deterministic delivery readiness check** and records the verdict in the Market Activity timeline (`DELIVERY_READY_FOR_RELEASE`) and the Protocol Proof panel. This makes the autonomous side of the flow legible: the agents source, compete, award, deliver, **and verify** — the founder's Phantom signature is the final safety release gate.
+
+- **It is advisory only.** The check **never moves money and never gates the founder's escrow release**. The founder can always release or refund; a failed check surfaces a warning, it does not disable anything. Escrow release stays a founder Phantom signature — full stop.
+- **This is not a separate "Verifier Agent."** It is the buyer agent's own deterministic check (`app/lib/delivery-readiness.ts`, a pure function). The result shape is intentionally generic so a future CoralOS `relix-verifier` seller agent could fill the same object — but no such agent exists today, and the UI does not claim one.
+- **What it checks:** the delivery came from the awarded specialist; escrow was funded before delivery was marked ready (a visible confirmation of the call-order invariant — delivery is only generated after the lock confirms); required deliverables exist; a launch post/thread exists; the campaign brief is present; the delivery links to the bid id (and, on a CoralOS run, the session/thread ids — a local-fallback run passes this with a note, it does not fail).
+- **Agent-signed attestation.** The verdict is signed with the Relix agent key (`app/lib/delivery-attestation.ts`) — the same key family that signs reward/prize payouts, and deliberately **not** anything that can move founder escrow. By default the signature is produced **off-chain** (ed25519, no fee, no broadcast). Set `RELIX_ONCHAIN_ATTESTATION=1` to also broadcast a devnet **Memo** transaction (moves zero lamports) so the attestation gets a public Solana Explorer link, clearly separate from the escrow account. Signing is best-effort: if it fails, the readiness verdict still stands and nothing is blocked.
+- **Autonomy ledger.** The Protocol Proof panel shows a live count of **autonomous agent actions vs. founder safety signatures** for the run, derived from the run's own events and on-chain escrow state — the honest framing of "the agents run the marketplace; the founder holds the release gate."
+
 ## Anchor Escrow Settlement
 
 The escrow program (`programs/relix_escrow`, Rust/Anchor) is the only thing in Relix that moves real money, and it is signed entirely by the founder — never by an agent, and never by CoralOS.
@@ -229,7 +241,7 @@ The escrow program is deployed on devnet already, so most local runs only need a
 | `NEXT_PUBLIC_RELIX_ESCROW_PROGRAM_ID` | The deployed Anchor program id (`programs/relix_escrow`). Defaults to the devnet deployment used by this repo. |
 | `NEXT_PUBLIC_RELIX_TREASURY_WALLET` | The Relix treasury's public key. Receives the platform fee on every `release_escrow`. Must be a real devnet address you control the key for if you want to move the fee elsewhere later — the UI only needs the public key. |
 | `NEXT_PUBLIC_RELIX_PLATFORM_FEE_BPS` | Platform fee in basis points (1000 = 10%), capped at 3000 (30%) by the Anchor program. |
-| `RELIX_AGENT_TREASURY_SECRET` | Unrelated to escrow — see [Agent-Signed On-Chain Payouts](#agent-signed-on-chain-payouts). Only funds agent-signed reward-ladder/prize payouts, never escrow. |
+| `RELIX_AGENT_TREASURY_SECRET` | Unrelated to escrow — see [Agent-Signed On-Chain Payouts](#agent-signed-on-chain-payouts). Only funds capped devnet agent-signed reward-ladder/prize payouts from a separate agent treasury, never escrow. It is **not** founder escrow custody — founder escrow is controlled by the Anchor program and the founder's Phantom signature. |
 
 If any of the three `NEXT_PUBLIC_RELIX_ESCROW_*`/`NEXT_PUBLIC_RELIX_TREASURY_WALLET` values are missing or invalid, `getRelixEscrowConfig()` (`app/lib/relix-escrow.ts`) returns a setup error and the UI shows it directly on the hire and release screens instead of silently falling back to a direct transfer.
 
@@ -404,6 +416,12 @@ NEXT_PUBLIC_RELIX_PLATFORM_FEE_BPS=1000
 # from, server-side, with no human approval. If unset, Relix generates one on
 # first use, persists it to the gitignored data dir, and airdrops devnet SOL.
 RELIX_AGENT_TREASURY_SECRET=optional_base64_devnet_secret_key
+
+# Optional. When "1", the Growth Employee's delivery readiness attestation is
+# also broadcast as a devnet Memo transaction (moves zero lamports) so it has a
+# public Explorer link. Default (unset) signs the attestation off-chain only.
+# Never touches escrow. See "Delivery Readiness Check".
+RELIX_ONCHAIN_ATTESTATION=0
 
 # CoralOS market coordination — LOCAL runtime path (see "CoralOS Market
 # Coordination"). When RELIX_CORALOS_ENABLED=1 and a local Coral Server is
@@ -661,7 +679,7 @@ A judge can follow the whole founder-to-specialist settlement path from the UI a
 7. Release escrow — click `Release Escrow`, sign `release_escrow`.
 8. Show Explorer link for the release transaction.
 9. Show specialist payout and Relix treasury fee in the settlement summary card and Protocol Proof panel.
-10. Show campaign active, with the full timeline (`FOUNDER_SELECTED_SPECIALIST` → `ESCROW_CREATED` → `FUNDS_LOCKED` → `SPECIALIST_DELIVERY_RECEIVED` → `ESCROW_RELEASED` → `SPECIALIST_PAID` → `TREASURY_FEE_PAID` → `CAMPAIGN_ACTIVE`, plus the parallel `CORALOS_*` events when CoralOS coordinated the run) visible in Market Activity.
+10. Show campaign active, with the full timeline (`FOUNDER_SELECTED_SPECIALIST` → `ESCROW_CREATED` → `FUNDS_LOCKED` → `SPECIALIST_DELIVERY_RECEIVED` → `DELIVERY_READY_FOR_RELEASE` → `ESCROW_RELEASED` → `SPECIALIST_PAID` → `TREASURY_FEE_PAID` → `CAMPAIGN_ACTIVE`, plus the parallel `CORALOS_*` events when CoralOS coordinated the run) visible in Market Activity. `DELIVERY_READY_FOR_RELEASE` is the Growth Employee's advisory readiness check — it marks the delivery ready but does not release escrow.
 
 ## What The MVP Proves
 
@@ -679,6 +697,7 @@ A judge can follow the whole founder-to-specialist settlement path from the UI a
 - Phantom wallet connection on Solana devnet.
 - Devnet balance reads and optional devnet airdrop.
 - Real Anchor escrow on devnet for founder settlement: lock SOL in a PDA vault, release to specialist plus Relix treasury, or refund after the deadline.
+- A deterministic, agent-signed **delivery readiness check** run by the Growth Employee after delivery (advisory — it never releases escrow; the founder's Phantom signature does). Off-chain ed25519 signature by default; an optional devnet Memo attestation with an Explorer link when `RELIX_ONCHAIN_ATTESTATION=1`.
 - A real CoralOS (Coral Server) runtime coordinating the buyer and three seller agents over MCP — locally (JVM) or via the optional hosted Docker backend — with real session/thread/bid ids surfaced in the Protocol Proof panel.
 - Agent-signed on-chain capabilities: the Referral Specialist's `reward-ladders` and the Tournament Specialist's `prize-payouts` settle capped ladders/pools of real devnet transfers from an agent-controlled treasury wallet — signed server-side with no human approval — to the recipient wallet. Caps are enforced server-side and every payout has an Explorer link. These capabilities are badged "⛓ on-chain" across the app to distinguish them from content capabilities.
 - GitHub OAuth and GitHub API repository reads.
@@ -702,7 +721,7 @@ No real users, signups, creator contacts, or campaign results are claimed. Relix
 
 - **No dispute/arbitration path.** Disagreements currently resolve to either the founder releasing or a deadline-gated refund — there is no third-party arbitration or partial-release mechanism.
 - **No reputation-weighted settlement.** A production version would tie staking, slashing, or graduated fee schedules to a specialist's track record; today reputation only lightly influences bid *selection*, not settlement terms.
-- **Native SOL only** — no SPL token escrow, no multi-specialist/multi-job escrow accounts.
+- **Native SOL only** — the MVP uses native SOL for judged devnet escrow. SPL/USDC escrow support is a natural extension, **not currently implemented or claimed**; there is also no multi-specialist/multi-job escrow account today.
 - **No publisher auth** on the specialist marketplace — publishing is intentionally open for the hackathon; a production version would add owner accounts and permissions.
 - **Local JSON persistence by default** — durable only when Vercel KV/Upstash is configured; a production version would move all stores (not just published specialists) to a real database.
 - **CoralOS's local runtime path is not Vercel-compatible** by design (it needs a long-running JVM + launched agent processes) — the hosted backend closes this gap, but is itself a single-container deployment without horizontal scaling or queuing for concurrent campaigns.

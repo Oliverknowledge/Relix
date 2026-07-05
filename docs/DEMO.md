@@ -7,7 +7,12 @@ This is the judge runbook for the complete Relix flow.
 The chain is **job/request → bid → award → escrow funded → delivery →
 release/refund**. CoralOS coordinates the buyer/seller agents (it holds no keys
 and moves no money); the founder signs the on-chain escrow, and **founder
-approval is the release gate**.
+approval is the safety release gate** — escrow release is never autonomous.
+
+**The submitted demo runs on real (hosted or local) CoralOS** and shows real
+session/thread/bid ids in the Protocol Proof panel. The local fallback below is
+only a reliability mode for serverless hosts; it is always labelled honestly as
+fallback and never presented as CoralOS.
 
 Honest summary up front:
 
@@ -117,6 +122,15 @@ Connect GitHub + wallet, set a goal, and run. The plan is produced by
   founder / specialist / treasury wallets, total locked, specialist payout,
   treasury fee, and init/release/refund tx signatures with Explorer links**, plus
   **Settlement status** (not funded / funded / released / refunded).
+
+**Delivery readiness** (below the coordination rows): after the specialist
+delivers, the Growth Employee (buyer agent) runs a deterministic readiness check
+and the panel shows the checklist + an agent-signed attestation (off-chain by
+default; a devnet Memo tx with an Explorer link when `RELIX_ONCHAIN_ATTESTATION=1`).
+This is advisory — it marks the delivery **ready for release** but **does not
+release escrow**; the founder's Phantom signature is still the only release gate.
+The panel also shows an **autonomy ledger**: autonomous agent actions vs. founder
+safety signatures for the run.
 
 **Market Activity timeline** now includes the `CORALOS_*` events:
 `CORALOS_RUNTIME_CONNECTED`, `CORALOS_BUYER_AGENT_REGISTERED`,
