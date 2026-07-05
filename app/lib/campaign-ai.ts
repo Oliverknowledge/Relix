@@ -35,8 +35,25 @@ function jobFacts(context: SpecialistJobContext) {
       : "Website: not analysed.",
     context.analyticsConnected
       ? `Analytics: ${context.analyticsSummary}`
-      : "Analytics: not connected."
+      : "Analytics: not connected.",
+    context.launchUrl?.trim()
+      ? `Call-to-action link (use this EXACT url in every call to action; never write a bracketed placeholder like [waitlist link]): ${context.launchUrl.trim()}`
+      : "Call-to-action link: none provided — write the phrase \"the signup link\" instead of a bracketed placeholder like [waitlist link]."
   ].join("\n");
+}
+
+// Replaces the bracketed link placeholders a model sometimes emits (e.g.
+// "[waitlist link]", "[signup link]", "[link]") with the founder's real URL,
+// or a clean phrase when no URL was given — so delivered posts are never left
+// with a placeholder the founder has to hunt down and hand-edit. Belt-and-
+// braces alongside the prompt instruction above.
+function applyLaunchLink(text: string, launchUrl?: string): string {
+  const replacement = launchUrl?.trim() || "the signup link";
+
+  return text.replace(
+    /\[[^\]]*(?:waitlist|sign[\s-]?up|link|url|cta|join)[^\]]*\]/gi,
+    replacement
+  );
 }
 
 async function writeBid(
@@ -231,8 +248,12 @@ export async function generateDelivery(
     request: context
   });
 
+  // Even on the deterministic path, scrub any bracketed link placeholder and
+  // drop in the founder's real URL so the base delivery is copy-paste ready.
+  const baseWithLink = withLaunchLink(base, context.launchUrl);
+
   if (!claudeConfigured()) {
-    return { aiGenerated: false, delivery: base };
+    return { aiGenerated: false, delivery: baseWithLink };
   }
 
   const agent = getSpecialistAgent(specialistId);
@@ -245,7 +266,7 @@ export async function generateDelivery(
   );
   const prompt = `${jobFacts(context)}
 
-You are delivering the launch assets you were hired for. Rewrite each asset below so it is specific, grounded in the facts above, and ready for founder review. Tweets must be 280 characters or fewer. Do not invent metrics, users, or results.
+You are delivering the launch assets you were hired for. Rewrite each asset below so it is specific, grounded in the facts above, and ready for founder review. Tweets must be 280 characters or fewer. Do not invent metrics, users, or results. For every call to action, use the exact call-to-action link from the facts above — never write a bracketed placeholder like [waitlist link] or [signup link].
 
 Assets (keep every id):
 ${blocks
@@ -267,25 +288,47 @@ Respond with a JSON object only, in exactly this shape:
 
     return {
       aiGenerated: true,
-      delivery: {
-        ...base,
-        report: cleanString(result.report, base.report),
-        sections: base.sections.map((section) => ({
-          ...section,
-          blocks: section.blocks.map((block) => {
-            const next = cleanString(rewritten[block.id], block.text);
+      delivery: withLaunchLink(
+        {
+          ...base,
+          report: cleanString(result.report, base.report),
+          sections: base.sections.map((section) => ({
+            ...section,
+            blocks: section.blocks.map((block) => {
+              const next = cleanString(rewritten[block.id], block.text);
 
-            return {
-              ...block,
-              text: block.kind === "tweet" ? clampTweet(next) : next
-            };
-          })
-        }))
-      }
+              return {
+                ...block,
+                text: block.kind === "tweet" ? clampTweet(next) : next
+              };
+            })
+          }))
+        },
+        context.launchUrl
+      )
     };
   } catch {
-    return { aiGenerated: false, delivery: base };
+    return { aiGenerated: false, delivery: baseWithLink };
   }
+}
+
+// Applies applyLaunchLink to every text field of a delivery (report + each
+// block), returning a new delivery with placeholders resolved.
+function withLaunchLink(
+  delivery: SpecialistDelivery,
+  launchUrl?: string
+): SpecialistDelivery {
+  return {
+    ...delivery,
+    report: applyLaunchLink(delivery.report, launchUrl),
+    sections: delivery.sections.map((section) => ({
+      ...section,
+      blocks: section.blocks.map((block) => ({
+        ...block,
+        text: applyLaunchLink(block.text, launchUrl)
+      }))
+    }))
+  };
 }
 
 /**

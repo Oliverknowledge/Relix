@@ -28,6 +28,12 @@ export type SpecialistJobContext = {
   daysRemaining: number;
   goal: string;
   jobId: string;
+  // The founder's real call-to-action URL (waitlist/signup/site), used so
+  // delivered posts carry a clickable link instead of a "[waitlist link]"
+  // placeholder. Empty when the founder gave no URL. Optional in the type so
+  // job contexts transported over CoralOS (which may predate this field) stay
+  // valid; readers must treat it as possibly undefined.
+  launchUrl?: string;
   launchChange: string;
   productArea: string;
   productName: string;

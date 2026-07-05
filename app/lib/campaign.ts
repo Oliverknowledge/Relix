@@ -264,6 +264,7 @@ export function buildSpecialistJobContext({
     daysRemaining,
     goal: request.goal,
     jobId,
+    launchUrl: request.websiteUrl,
     launchChange,
     productArea,
     productName: github ? humanizeRepoName(github.name) : request.gameName,

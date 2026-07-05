@@ -2640,7 +2640,7 @@ function SetupSection({
 
           <label className="grid gap-2">
             <span className="text-sm font-medium text-[#18181b]">
-              Website URL
+              Website or waitlist URL
             </span>
             <input
               className="field h-14 px-4 text-base"
@@ -2654,6 +2654,10 @@ function SetupSection({
               type="url"
               value={form.websiteUrl}
             />
+            <span className="text-xs leading-5 text-[#a1a1aa]">
+              Used as the call-to-action link in your launch posts, so the
+              delivered copy is ready to publish.
+            </span>
           </label>
 
           <GoogleAnalyticsConnection
@@ -4250,6 +4254,33 @@ function SpecialistDeliverySection({
   const connectedLabel = xStatus.account
     ? `Connected as @${xStatus.account.username}`
     : "Connect X to schedule or publish.";
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  // One-click export of the whole delivery as formatted plain text, so a
+  // founder can drop the entire launch pack into a doc, Discord, or scheduler
+  // without copying each asset one at a time.
+  const copyLaunchPack = async () => {
+    const packBody = delivery.sections
+      .map((section) => {
+        const body = section.blocks
+          .map((block) => `${block.label}:\n${block.text}`)
+          .join("\n\n");
+
+        return `## ${section.title}\n\n${body}`;
+      })
+      .join("\n\n");
+    const pack = `${specialistDisplayName(
+      campaign.winningBid
+    )} — launch pack\n\n${packBody}`;
+
+    try {
+      await navigator.clipboard.writeText(pack);
+      setCopiedAll(true);
+      window.setTimeout(() => setCopiedAll(false), 1600);
+    } catch {
+      setCopiedAll(false);
+    }
+  };
 
   return (
     <section className="mx-auto max-w-6xl">
@@ -4293,6 +4324,18 @@ function SpecialistDeliverySection({
               />
             </>
           ) : null}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              className="rounded-full bg-[#0a0a0a] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[#27272a]"
+              onClick={() => void copyLaunchPack()}
+              type="button"
+            >
+              {copiedAll ? "Launch pack copied" : "Copy entire launch pack"}
+            </button>
+            <span className="text-xs text-[#71717a]">
+              Every asset below, formatted and ready to paste.
+            </span>
+          </div>
         </div>
 
         {showRewardLadder ? (
