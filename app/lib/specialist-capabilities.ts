@@ -42,6 +42,12 @@ export const specialistCapabilityOptions = [
     description: "Prepare community launch announcements for founder-led updates.",
     id: "community-briefs",
     label: "Community briefs"
+  },
+  {
+    description:
+      "Turn the launch into a concrete where-to-post plan: the founder's own channels, canonical venues matched to the product, a search strategy for niche communities, and a 72-hour posting sequence.",
+    id: "distribution-plan",
+    label: "Distribution plan"
   }
 ] as const;
 

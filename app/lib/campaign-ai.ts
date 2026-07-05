@@ -257,13 +257,20 @@ export async function generateDelivery(
   }
 
   const agent = getSpecialistAgent(specialistId);
-  const blocks = base.sections.flatMap((section) =>
-    section.blocks.map((block) => ({
-      id: block.id,
-      kind: block.kind,
-      label: `${section.title} — ${block.label}`
-    }))
-  );
+  // The Distribution Plan is deliberately kept deterministic and out of the
+  // model rewrite: its honesty depends on the exact venues, the "no live data —
+  // verify fit" disclaimer, and the search-don't-guess framing. Letting the
+  // model rewrite it risks fabricated community names or a dropped disclaimer.
+  // Blocks omitted here fall back to their deterministic text below.
+  const blocks = base.sections
+    .filter((section) => section.id !== "distribution-plan")
+    .flatMap((section) =>
+      section.blocks.map((block) => ({
+        id: block.id,
+        kind: block.kind,
+        label: `${section.title} — ${block.label}`
+      }))
+    );
   const prompt = `${jobFacts(context)}
 
 You are delivering the launch assets you were hired for. Rewrite each asset below so it is specific, grounded in the facts above, and ready for founder review. Tweets must be 280 characters or fewer. Do not invent metrics, users, or results. For every call to action, use the exact call-to-action link from the facts above — never write a bracketed placeholder like [waitlist link] or [signup link].

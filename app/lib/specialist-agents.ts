@@ -137,7 +137,8 @@ const tournamentAgent: SpecialistAgent = {
     "tournament-design",
     "prize-payouts",
     "launch-threads",
-    "urgency-copy"
+    "urgency-copy",
+    "distribution-plan"
   ],
   basePriceSol: 0.75,
   deliveryDays: 5,
@@ -164,7 +165,7 @@ const referralAgent: SpecialistAgent = {
   name: "Referral Specialist",
   ownerName: "Priya Raman",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: ["invite-loops", "reward-ladders"],
+  capabilities: ["invite-loops", "reward-ladders", "distribution-plan"],
   basePriceSol: 0.42,
   deliveryDays: 3,
   model: "claude-haiku-4-5",
@@ -190,7 +191,7 @@ const communityAgent: SpecialistAgent = {
   name: "Community Launch Specialist",
   ownerName: "Diego Fuentes",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: ["community-briefs", "founder-replies"],
+  capabilities: ["community-briefs", "founder-replies", "distribution-plan"],
   basePriceSol: 0.35,
   deliveryDays: 4,
   model: "claude-haiku-4-5",
@@ -666,7 +667,8 @@ function tournamentDelivery(context: SpecialistJobContext): SpecialistDelivery {
       },
       followUpSection(
         `The ${context.productName} tournament wrapped. What we learned about ${context.productArea}, who won, and what ships next — plus where ${focus} landed. Recap thread tomorrow.`
-      )
+      ),
+      distributionPlanSection(context)
     ],
     specialistId: "tournament"
   };
@@ -761,7 +763,8 @@ function referralDelivery(context: SpecialistJobContext): SpecialistDelivery {
       },
       followUpSection(
         `Invite loop update for ${context.productName}: real numbers on how many invites became first sessions, what that did for ${focus}, and the one thing we are changing in the reward ladder next week.`
-      )
+      ),
+      distributionPlanSection(context)
     ],
     specialistId: "referral"
   };
@@ -847,7 +850,8 @@ function communityDelivery(context: SpecialistJobContext): SpecialistDelivery {
       ]),
       followUpSection(
         `One week after the ${context.productName} announcement: what the community flagged about ${context.productArea}, what we fixed, and where ${focus} stands. Thread with specifics tomorrow.`
-      )
+      ),
+      distributionPlanSection(context)
     ],
     specialistId: "community"
   };
@@ -878,6 +882,165 @@ function followUpSection(text: string): SpecialistDeliverySection {
     ],
     id: "follow-up-post",
     title: "Follow-up Post"
+  };
+}
+
+type LaunchCategory = "crypto-web3" | "game" | "dev-tool" | "consumer-web";
+
+// Classifies the product from the repo signal so the distribution plan can
+// suggest venues that actually fit. Deliberately conservative: it only reads
+// the founder's own repo text, and every venue it maps to is a well-known,
+// stable launch destination — never an invented niche community.
+function inferLaunchCategory(context: SpecialistJobContext): LaunchCategory {
+  const hay = [
+    context.productArea,
+    context.repoSummary,
+    context.productName,
+    ...context.commitMessages
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (/\b(solana|wallet|on-?chain|web3|crypto|token|nft|anchor|devnet|escrow|ethereum)\b/.test(hay)) {
+    return "crypto-web3";
+  }
+  if (/\b(game|gameplay|player|tournament|unity|level|quest|multiplayer|arcade)\b/.test(hay)) {
+    return "game";
+  }
+  if (/\b(api|sdk|cli|developer|library|framework|open[\s-]?source|self[\s-]?host|compiler|typescript|rust|golang)\b/.test(hay)) {
+    return "dev-tool";
+  }
+  return "consumer-web";
+}
+
+// Canonical, well-known launch venues. Every entry here is a real, stable
+// destination a founder can verify in one click — Product Hunt, Show HN,
+// dev.to, itch.io, and named-but-canonical subreddits. The plan text is
+// explicit that Relix has no live data on these and the founder must verify
+// fit; niche targeting is handled by a search strategy, never a fabricated
+// list of specific small communities.
+function launchVenuesFor(
+  category: LaunchCategory
+): { how: string; name: string }[] {
+  const universal = [
+    {
+      how: "submit the night before, launch at 12:01am PT, and line up your network for early upvotes and comments",
+      name: "Product Hunt"
+    },
+    {
+      how: 'title it "Show HN: <product> — <one line>", post Tue–Thu around 9am ET, and reply to every comment yourself',
+      name: "Hacker News (Show HN)"
+    }
+  ];
+  const byCategory: Record<LaunchCategory, { how: string; name: string }[]> = {
+    "crypto-web3": [
+      {
+        how: "share in the ecosystem Discords and X spaces you are already active in — genuine builds get reposted by ecosystem accounts",
+        name: "Ecosystem Discords / X spaces you already belong to"
+      },
+      {
+        how: "read each subreddit's self-promo rules first, and lead with what shipped, not a token",
+        name: "r/solana, r/CryptoCurrency, r/ethdev"
+      }
+    ],
+    game: [
+      {
+        how: "post a short clip or GIF of the newest build; each subreddit enforces strict self-promo rules, so read them first",
+        name: "itch.io, r/IndieGaming, r/playmygame"
+      },
+      {
+        how: "use the #showcase or #self-promo channels with a clip and one clear ask",
+        name: "Game Discords you are already in"
+      }
+    ],
+    "dev-tool": [
+      {
+        how: "write a short build-in-public post about the problem and the shipped fix",
+        name: "dev.to and Indie Hackers (Show IH)"
+      },
+      {
+        how: "read each subreddit's self-promo rules, lead with the technical problem you solved, and link last",
+        name: "r/SideProject, r/programming"
+      }
+    ],
+    "consumer-web": [
+      {
+        how: "frame the post around the user problem, not the feature list",
+        name: "Indie Hackers and subreddits your users actually read"
+      },
+      {
+        how: "offer an early look to two or three creators whose audience matches your users",
+        name: "Niche newsletters / creators in your space"
+      }
+    ]
+  };
+
+  return [...universal, ...byCategory[category]];
+}
+
+// The Distribution Plan: turns "Channel: X launch thread" into a concrete,
+// honest where-to-post plan. Grounded in the founder's own channels + real
+// launch venues, with a search strategy (not a fabricated list) for niche
+// communities, and an explicit disclaimer that Relix has no live data on the
+// venues. Notes only — the founder executes this, like the community brief.
+function distributionPlanSection(
+  context: SpecialistJobContext
+): SpecialistDeliverySection {
+  const link = context.launchUrl?.trim() || "your signup link";
+  const category = inferLaunchCategory(context);
+  const venues = launchVenuesFor(category);
+  const primaryVenue = venues[0].name;
+  const secondaryVenue = venues[1].name;
+  const focus = goalFocus(context.goal);
+
+  return {
+    blocks: [
+      {
+        id: "distribution-own",
+        kind: "note",
+        label: "1. Start with your own channels (highest intent)",
+        text: [
+          "Your own audience converts best — spend the first push here before anything else:",
+          "- Post the launch thread from your connected X account, then reply to every response within the first 2 hours (early replies drive reach).",
+          `- Send the announcement to your existing list and anyone who already signed up at ${link}.`,
+          `- Ask 5–10 people who already use ${context.productName} to repost or comment in the first hour — a cold thread rarely moves on its own.`
+        ].join("\n")
+      },
+      {
+        id: "distribution-venues",
+        kind: "note",
+        label: "2. Canonical venues that fit this product",
+        text: [
+          "Well-known launch destinations for this kind of product. Relix has no live data on these — verify each one's current rules and fit before posting:",
+          ...venues.map((venue) => `- ${venue.name} — ${venue.how}.`)
+        ].join("\n")
+      },
+      {
+        id: "distribution-niche",
+        kind: "note",
+        label: "3. Find niche communities (search, don't guess)",
+        text: [
+          "The communities where your users already gather are worth more than any generic feed — find them yourself instead of trusting a guessed list:",
+          `- Search Reddit for "site:reddit.com ${context.productArea}" and look for subreddits with recent activity and founder-friendly self-promo rules.`,
+          `- Search X and Google for "${context.productArea} discord" and "${context.productArea} community", then join the active ones before you post.`,
+          "- One relevant community you are genuinely part of beats ten drive-by posts."
+        ].join("\n")
+      },
+      {
+        id: "distribution-cadence",
+        kind: "note",
+        label: "4. Posting sequence — first 72 hours",
+        text: [
+          "Sequence it; don't blast every channel at once:",
+          `- Day 1 AM: X launch thread + ${primaryVenue} + email your list.`,
+          "- Day 1 (all day): reply to every comment and quote within 2 hours.",
+          `- Day 2: ${secondaryVenue}; repost the thread with your best early reply pinned on top.`,
+          `- Day 3: 2–3 niche communities you verified; share the follow-up post with early signs of ${focus}.`
+        ].join("\n")
+      }
+    ],
+    id: "distribution-plan",
+    title: "Distribution Plan"
   };
 }
 
