@@ -41,6 +41,8 @@ Relix uses a real Solana devnet escrow program for founder-to-specialist settlem
 
 Buyer/seller coordination for that hire can run over **CoralOS** — the real Coral Server runtime, not a mock — either locally or on a hosted backend. **CoralOS coordinates the agents; it never moves money.** See [CoralOS Market Coordination](#coralos-market-coordination) for the full, honest breakdown, and [docs/DEMO.md](docs/DEMO.md) for a step-by-step judge runbook.
 
+**Zero setup to judge live.** The deployed app needs no local install, no API keys, and no pre-shared credentials: open the live URL, click **Connect GitHub** and authorize with your *own* GitHub account (Relix only ever reads your repos — description, README, commits, releases, languages — never writes to them), connect a Phantom wallet on devnet and use the built-in **Get devnet SOL** button if your balance is low, then hire the employee against any of your own repos. The whole WANT → BID → AWARD → DEPOSITED → DELIVERED → RELEASED flow runs end to end from there, with every step landing on a shareable `/proof/[campaignId]` receipt.
+
 A few things worth knowing before you judge the demo:
 
 - **The agents run the marketplace; the founder holds the release gate.** The buyer and seller agents autonomously coordinate job creation, bidding, award recommendation, delivery, and proof. The one thing they cannot do is move the founder's money: **founder approval (a Phantom signature) is the safety release gate**, and only that signature releases escrow. The full chain is **GitHub context → CoralOS buyer/seller bids → awarded specialist → Anchor escrow → Explorer proof** — the AI-written launch assets are the *delivery layer* inside that chain, not the whole product.
