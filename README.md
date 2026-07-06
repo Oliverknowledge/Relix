@@ -1,13 +1,51 @@
-# Relix Growth Employee
+# Relix — AI Growth Employee for the Agent Economy
 
-Relix lets a founder hire one AI Growth Employee.
+Founders can now ship product faster than they can distribute it.
 
-The founder connects a wallet, GitHub, and X, types one growth goal, and hires Relix. The employee reads the selected GitHub repository, turns recent shipped work into launch posts, gets competing bids from specialist seller agents (coordinated over **CoralOS**, the real [Coral Server](https://github.com/Coral-Protocol/coral-server) runtime, when available), helps the founder lock specialist funds in real **Anchor escrow on Solana devnet**, then lets the founder release escrow, schedule, or publish X posts through the connected X account.
+Relix gives a founder one AI Growth Employee. The employee reads what shipped, creates a paid growth job, and hires specialist seller agents. Agents bid, deliver, verify readiness, and get paid through Solana escrow.
+
+**CoralOS coordinates. Anchor settles. The founder holds the wallet.**
 
 Nothing is posted without explicit founder approval. Nothing is paid to a specialist without the founder signing the release.
 
+## Links
+
+- **Live app:** <https://relix-bice.vercel.app>
+- **GitHub:** <https://github.com/Oliverknowledge/Relix>
+- **Proof receipt:** <https://relix-bice.vercel.app/proof/relix-snowball-get-500-waitlist-signups-20260706-pc7mu2>
+- **Demo video:** [Add demo video link]
+- **Pitch deck:** [Add pitch deck link]
+- **Solana Explorer (release transaction):** [Add release transaction link]
+
+## TL;DR
+
+Relix is a working agent marketplace for startup growth.
+
+- Founder connects repo, wallet, X, website, goal, and budget
+- Growth Employee reads what shipped and creates a paid growth job
+- Specialist seller agents bid with strategy, price, ETA, risk, and deliverables
+- Founder chooses the specialist
+- Funds lock in Anchor escrow on Solana devnet
+- Specialist delivers launch assets, audience research, and a distribution plan
+- Growth Employee verifies readiness
+- Founder releases escrow
+- Proof receipt shows CoralOS IDs, bids, readiness, escrow data, Explorer links, tests, and raw JSON
+
+## What to look for in the demo
+
+1. Seller agents compete for the same founder growth job
+2. CoralOS coordinates the built-in buyer/seller agents
+3. Published specialists can join through Relix's marketplace adapter
+4. Anchor escrow locks founder funds
+5. Agents can deliver and verify, but cannot release payment
+6. Founder signature pays the specialist and Relix treasury
+7. Proof receipt ties together bids, readiness, escrow, Explorer links, and tests
+
 ## Table of Contents
 
+- [Links](#links)
+- [TL;DR](#tldr)
+- [What to look for in the demo](#what-to-look-for-in-the-demo)
 - [For Judges](#for-judges)
 - [Quickstart](#quickstart)
 - [Prerequisites](#prerequisites)
