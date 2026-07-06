@@ -1,7 +1,9 @@
-// Only capabilities whose output the app actually acts on are listed here:
-// reward-ladders settles on-chain, and the rest become real X assets the
-// founder can publish. Note-only "plan" capabilities were removed so a
-// specialist never advertises work the app does not execute or publish.
+// Capabilities whose output the app actually acts on: reward-ladders and
+// prize-payouts settle on-chain, most others become real X assets the
+// founder can publish, and distribution-plan / audience-research are
+// deliberately advice-only (Copy/Edit, no Schedule/Publish) — a specialist
+// never advertises work the app does not execute, publish, or clearly label
+// as founder-executed research.
 export const specialistCapabilityOptions = [
   {
     description: "Write concise X launch threads grounded in product changes.",
@@ -48,6 +50,12 @@ export const specialistCapabilityOptions = [
       "Turn the launch into a concrete where-to-post plan: the founder's own channels, canonical venues matched to the product, a search strategy for niche communities, and a 72-hour posting sequence.",
     id: "distribution-plan",
     label: "Distribution plan"
+  },
+  {
+    description:
+      "Finds high-intent audiences, communities, channels, objections, and launch angles for a shipped product update.",
+    id: "audience-research",
+    label: "Audience research"
   }
 ] as const;
 

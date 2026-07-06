@@ -64,6 +64,8 @@ import {
   registerPublishedSpecialists,
   seedReputationFor,
   specialistRegistry,
+  type AudienceChannel,
+  type AudienceResearch,
   type SpecialistAgent,
   type SpecialistDelivery,
   type SpecialistId,
@@ -4375,6 +4377,10 @@ function SpecialistDeliverySection({
           />
         ) : null}
 
+        {delivery.audienceResearch ? (
+          <AudienceResearchCard research={delivery.audienceResearch} />
+        ) : null}
+
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-[#18181b]">Publishing</p>
@@ -4555,6 +4561,190 @@ function renderInlineMarkdown(text: string) {
 
     return <span key={index}>{part}</span>;
   });
+}
+
+// Audience Research is advice, not a postable asset: distinct blue-tinted
+// styling (never the grey/white tweet or note treatment), its own status
+// vocabulary (never "Waiting approval"/"Published"/"Scheduled"), and no
+// Publish/Schedule actions anywhere in this card.
+function AudienceResearchCard({ research }: { research: AudienceResearch }) {
+  const [expanded, setExpanded] = useState(true);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copy = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1600);
+    } catch {
+      setCopiedKey(null);
+    }
+  };
+
+  const audienceMapText = research.segments
+    .map(
+      (segment) =>
+        `${segment.name}\nWhy they care: ${segment.whyTheyCare}\nPain point: ${segment.painPoint}\nLaunch angle: ${segment.launchAngle}`
+    )
+    .join("\n\n");
+
+  const channelText = research.channels
+    .map(
+      (channel) =>
+        `${channel.platform} — ${channel.name}${
+          channel.searchQueryOrUrl ? `\nSearch: ${channel.searchQueryOrUrl}` : ""
+        }\nWhy relevant: ${channel.whyRelevant}\nPost angle: ${channel.suggestedPostAngle}\nRisk: ${channel.risk}\nFirst action: ${channel.firstAction}`
+    )
+    .join("\n\n");
+
+  const planText = research.first72HoursPlan
+    .map((step, index) => `${index + 1}. ${step}`)
+    .join("\n");
+
+  return (
+    <div className="rounded-[2rem] border border-[#c7d2fe] bg-[#eef2ff] p-6 sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[#4338ca]">
+          Audience Research
+        </p>
+        <span className="whitespace-nowrap rounded-full bg-white px-3 py-1 text-xs font-medium text-[#4338ca]">
+          Research ready
+        </span>
+      </div>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-[#312e81]">{research.summary}</p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#4338ca] transition hover:bg-[#4338ca] hover:text-white"
+          onClick={() => void copy("map", audienceMapText)}
+          type="button"
+        >
+          {copiedKey === "map" ? "Copied" : "Copy audience map"}
+        </button>
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#4338ca] transition hover:bg-[#4338ca] hover:text-white"
+          onClick={() => void copy("angles", channelText)}
+          type="button"
+        >
+          {copiedKey === "angles" ? "Copied" : "Copy community post angle"}
+        </button>
+        <button
+          className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#4338ca] transition hover:bg-[#4338ca] hover:text-white"
+          onClick={() => void copy("plan", planText)}
+          type="button"
+        >
+          {copiedKey === "plan" ? "Copied" : "Copy first 72-hour plan"}
+        </button>
+        <button
+          className="rounded-full px-3 py-2 text-xs font-medium text-[#4338ca] underline underline-offset-2 hover:no-underline"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          {expanded ? "Hide details" : "Show details"}
+        </button>
+      </div>
+
+      {expanded ? (
+        <div className="mt-6 grid gap-6">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.1em] text-[#4338ca]">
+              Audience segments
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              {research.segments.map((segment) => (
+                <div className="rounded-2xl bg-white p-4" key={segment.name}>
+                  <span className="rounded-full bg-[#eef2ff] px-2.5 py-1 text-[11px] font-medium text-[#4338ca]">
+                    Suggested audience
+                  </span>
+                  <p className="mt-2 text-sm font-medium text-[#18181b]">{segment.name}</p>
+                  <p className="mt-2 text-xs leading-5 text-[#52525b]">
+                    <strong>Why they care:</strong> {segment.whyTheyCare}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#52525b]">
+                    <strong>Pain point:</strong> {segment.painPoint}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#52525b]">
+                    <strong>Launch angle:</strong> {segment.launchAngle}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.1em] text-[#4338ca]">
+              Candidate channels
+            </p>
+            <div className="mt-3 grid gap-3">
+              {research.channels.map((channel) => (
+                <AudienceChannelRow channel={channel} key={`${channel.platform}-${channel.name}`} />
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.1em] text-[#4338ca]">
+              Objections to expect
+            </p>
+            <div className="mt-3 grid gap-2">
+              {research.objections.map((item) => (
+                <div className="rounded-2xl bg-white p-4" key={item.objection}>
+                  <p className="text-sm font-medium text-[#18181b]">{item.objection}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#52525b]">{item.founderReply}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.1em] text-[#4338ca]">
+              First 72 hours
+            </p>
+            <ol className="mt-3 grid gap-2">
+              {research.first72HoursPlan.map((step, index) => (
+                <li className="rounded-2xl bg-white p-4 text-xs leading-5 text-[#52525b]" key={index}>
+                  <span className="mr-1 font-medium text-[#4338ca]">First action</span>
+                  {step}
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function AudienceChannelRow({ channel }: { channel: AudienceChannel }) {
+  return (
+    <div className="rounded-2xl bg-white p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-medium text-[#18181b]">
+          {channel.platform} — {channel.name}
+        </p>
+        <span className="rounded-full bg-[#eef2ff] px-2.5 py-1 text-[11px] font-medium text-[#4338ca]">
+          Candidate channel
+        </span>
+      </div>
+      {channel.searchQueryOrUrl ? (
+        <p className="mt-2 text-xs leading-5 text-[#71717a]">
+          Search: <span className="font-mono">{channel.searchQueryOrUrl}</span>
+        </p>
+      ) : null}
+      <p className="mt-2 text-xs leading-5 text-[#52525b]">
+        <strong>Why relevant:</strong> {channel.whyRelevant}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[#52525b]">
+        <strong>Post angle:</strong> {channel.suggestedPostAngle}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[#b45309]">
+        <strong>Risk:</strong> {channel.risk}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-[#52525b]">
+        <span className="font-medium text-[#4338ca]">First action</span> — {channel.firstAction}
+      </p>
+    </div>
+  );
 }
 
 function DeliveryAssetCard({

@@ -12,6 +12,7 @@
     "lint": "eslint",
     "test:readiness": "esbuild scripts/tests/delivery-readiness.test.ts --bundle --platform=node --format=esm --outfile=scripts/tests/dist/delivery-readiness.test.mjs && node scripts/tests/dist/delivery-readiness.test.mjs",
     "test:x-scheduling": "esbuild scripts/tests/x-scheduling.test.ts --bundle --platform=node --format=esm --outfile=scripts/tests/dist/x-scheduling.test.mjs && node scripts/tests/dist/x-scheduling.test.mjs",
+    "test:audience-research": "esbuild scripts/tests/audience-research.test.ts --bundle --platform=node --format=esm --outfile=scripts/tests/dist/audience-research.test.mjs && node scripts/tests/dist/audience-research.test.mjs",
     "coralos:build": "esbuild scripts/coralos/agent.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/agent.mjs",
     "coralos:server:build": "esbuild scripts/coralos/server.ts --bundle --platform=node --format=esm --outfile=scripts/coralos/dist/coralos-server.mjs",
     "coralos:server": "npm run coralos:build && npm run coralos:server:build && node scripts/coralos/dist/coralos-server.mjs",

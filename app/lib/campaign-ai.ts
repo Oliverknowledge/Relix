@@ -8,6 +8,7 @@ import type { Bid, CampaignPlan } from "@/app/lib/campaign";
 import {
   getSpecialistAdapter,
   getSpecialistAgent,
+  hasAudienceResearchCapability,
   type SpecialistAgent,
   type SpecialistDelivery,
   type SpecialistJobContext
@@ -61,12 +62,17 @@ async function writeBid(
   bid: Bid,
   context: SpecialistJobContext
 ): Promise<Bid> {
+  const audienceResearch = hasAudienceResearchCapability(agent.capabilities);
   const prompt = `${jobFacts(context)}
 
 Your capabilities: ${agent.capabilities.join(", ")}.
 Your fixed price for this job is ${bid.priceSol} SOL and your delivery time is ${bid.deliveryDays} days (already set — do not change them).
 
-You are bidding for this paid growth job on the Relix marketplace. Write your pitch grounded ONLY in the facts above. Do not invent traction numbers, users, or results.
+You are bidding for this paid growth job on the Relix marketplace. Write your pitch grounded ONLY in the facts above. Do not invent traction numbers, users, or results.${
+    audienceResearch
+      ? ` Because you have Audience research capability, your reasoning should also mention: the audience segment you'd target first, where you would launch first and why that channel is likely to work, the main risk (including spam risk), and what signal would prove the audience is real. Label any community you have not verified as a candidate, never as confirmed.`
+      : ""
+  }
 
 Respond with a JSON object only, no prose, in exactly this shape:
 {

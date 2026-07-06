@@ -78,7 +78,43 @@ export type SpecialistDeliverySection = {
   title: string;
 };
 
+// Audience Research is advice, not a postable asset — no Publish/Schedule,
+// no fake traction. Every field is deterministically derived from the same
+// job context every other delivery block uses; candidate communities are
+// always labelled "candidate"/"search", never "verified".
+export type AudienceSegment = {
+  launchAngle: string;
+  name: string;
+  painPoint: string;
+  whyTheyCare: string;
+};
+
+export type AudienceChannel = {
+  firstAction: string;
+  name: string;
+  platform: "Reddit" | "X" | "Discord" | "Indie Hackers" | "Other";
+  risk: string;
+  searchQueryOrUrl?: string;
+  suggestedPostAngle: string;
+  whyRelevant: string;
+};
+
+export type AudienceObjection = {
+  founderReply: string;
+  objection: string;
+};
+
+export type AudienceResearch = {
+  channels: AudienceChannel[];
+  first72HoursPlan: string[];
+  objections: AudienceObjection[];
+  segments: AudienceSegment[];
+  summary: string;
+};
+
 export type SpecialistDelivery = {
+  // Only present for specialists with the audience-research capability.
+  audienceResearch?: AudienceResearch;
   // Same structured strategy fields as Bid — carried through from bid to
   // delivery so the founder sees a consistent strategy, not just assets.
   channel: string;
@@ -165,13 +201,18 @@ const referralAgent: SpecialistAgent = {
   name: "Referral Specialist",
   ownerName: "Priya Raman",
   ownerWallet: "DfzySb4cMTR1v5xuDWATsTcMJ3RvsSxGhmJuTHeNd69M",
-  capabilities: ["invite-loops", "reward-ladders", "distribution-plan"],
+  capabilities: [
+    "invite-loops",
+    "reward-ladders",
+    "distribution-plan",
+    "audience-research"
+  ],
   basePriceSol: 0.42,
   deliveryDays: 3,
   model: "claude-haiku-4-5",
   version: "1.0.8",
   prompt:
-    "You are Referral Specialist, an independent seller agent on the Relix marketplace. Design a simple invite loop for early users: invite framing, a reward ladder with caps, and an abuse review checklist. Recommend activation only after a launch beat has produced a seed audience, and flag any reward that could attract bot signups.",
+    "You are Referral Specialist, an independent seller agent on the Relix marketplace. Design a simple invite loop for early users: invite framing, a reward ladder with caps, and an abuse review checklist. Recommend activation only after a launch beat has produced a seed audience, and flag any reward that could attract bot signups. Because this specialist has Audience research capability, include an Audience Research section before final launch assets. Identify high-intent audience segments, candidate subreddits, X search terms or communities, likely objections, and the first 72-hour distribution plan. Do not invent fake traction or verified community data. Label suggestions as candidates unless verified.",
   status: "active",
   createdAt: "2026-04-18T10:15:00.000Z",
   jobsCompleted: 8,
@@ -345,6 +386,7 @@ export function createGenericSpecialistAdapter(
 function genericBid(agent: SpecialistAgent, context: SpecialistJobContext): Bid {
   const change = shorten(context.launchChange, 80);
   const capabilityText = agent.capabilities.slice(0, 3).join(", ");
+  const research = hasAudienceResearchCapability(agent.capabilities);
 
   return {
     ...genericStrategyFields(agent, context),
@@ -360,8 +402,10 @@ function genericBid(agent: SpecialistAgent, context: SpecialistJobContext): Bid 
       context.productArea
     }, point people at ${ctaOr(context)}, and aim the work at ${goalFocus(
       context.goal
-    )}.`,
-    risk: `This is a newer published seller, so it has less marketplace history than established specialists. The plan stays grounded in ${context.repository} and your goal to limit that risk.`,
+    )}.${research ? ` I'll also map who's most likely to care and where to reach them first — candidate subreddits and X search terms, not a guessed list.` : ""}`,
+    risk: research
+      ? `This is a newer published seller, so it has less marketplace history than established specialists. Audience research is grounded in your repo and goal, but candidate communities are unverified — you should confirm fit before posting.`
+      : `This is a newer published seller, so it has less marketplace history than established specialists. The plan stays grounded in ${context.repository} and your goal to limit that risk.`,
     specialistId: agent.id
   };
 }
@@ -446,6 +490,9 @@ function genericDelivery(
         `Follow-up for ${context.productName}: what we learned about ${context.productArea} from the launch window, and where ${focus} landed. Specifics tomorrow.`
       )
     ],
+    ...(hasAudienceResearchCapability(agent.capabilities)
+      ? { audienceResearch: audienceResearchSection(agent, context) }
+      : {}),
     specialistId: agent.id
   };
 }
@@ -454,8 +501,13 @@ function genericDeliverables(agent: SpecialistAgent) {
   const fromCapabilities = agent.capabilities
     .slice(0, 3)
     .map((capability) => capabilityLabel(capability));
+  const research = hasAudienceResearchCapability(agent.capabilities)
+    ? ["Audience research"]
+    : [];
 
-  return [...new Set([...fromCapabilities, "Launch thread", "Follow-up post"])];
+  return [
+    ...new Set([...fromCapabilities, ...research, "Launch thread", "Follow-up post"])
+  ];
 }
 
 function capabilityLabel(capability: string) {
@@ -530,6 +582,7 @@ function referralBid(context: SpecialistJobContext): Bid {
       "Reward copy",
       "Abuse checks",
       "Invite messages",
+      "Audience research",
       "Follow-up post"
     ],
     deliveryDays: agent.deliveryDays,
@@ -538,10 +591,10 @@ function referralBid(context: SpecialistJobContext): Bid {
     priceSol: priceFromBudget(context.budgetSol, 0.26, agent.basePriceSol),
     reasoning: `Every signup from ${ctaOr(
       context
-    )} can invite the next one. ${audienceLine}`,
+    )} can invite the next one. ${audienceLine} I'll also map the highest-intent audience segments and candidate channels so the loop starts with people who are actually likely to invite others.`,
     risk: `Referral rewards attract bots before they attract fans, so the mechanics ship with caps and an abuse checklist. This loop works best as the second beat, after something announces ${lowerFirst(
       change
-    )}.`,
+    )}. Candidate audience channels are unverified — confirm activity before posting.`,
     specialistId: agent.id
   };
 }
@@ -670,6 +723,9 @@ function tournamentDelivery(context: SpecialistJobContext): SpecialistDelivery {
       ),
       distributionPlanSection(context)
     ],
+    ...(hasAudienceResearchCapability(tournamentAgent.capabilities)
+      ? { audienceResearch: audienceResearchSection(tournamentAgent, context) }
+      : {}),
     specialistId: "tournament"
   };
 }
@@ -766,6 +822,9 @@ function referralDelivery(context: SpecialistJobContext): SpecialistDelivery {
       ),
       distributionPlanSection(context)
     ],
+    ...(hasAudienceResearchCapability(referralAgent.capabilities)
+      ? { audienceResearch: audienceResearchSection(referralAgent, context) }
+      : {}),
     specialistId: "referral"
   };
 }
@@ -853,6 +912,9 @@ function communityDelivery(context: SpecialistJobContext): SpecialistDelivery {
       ),
       distributionPlanSection(context)
     ],
+    ...(hasAudienceResearchCapability(communityAgent.capabilities)
+      ? { audienceResearch: audienceResearchSection(communityAgent, context) }
+      : {}),
     specialistId: "community"
   };
 }
@@ -1041,6 +1103,222 @@ function distributionPlanSection(
     ],
     id: "distribution-plan",
     title: "Distribution Plan"
+  };
+}
+
+const AUDIENCE_RESEARCH_CAPABILITY_ID = "audience-research";
+
+export function hasAudienceResearchCapability(capabilities: string[]): boolean {
+  return capabilities.includes(AUDIENCE_RESEARCH_CAPABILITY_ID);
+}
+
+type AudienceNiche = "consumer-web" | "crypto-web3" | "dev-tool" | "education" | "game";
+
+// Separate from inferLaunchCategory (used by distributionPlanSection) so this
+// never changes that function's behaviour. Adds an "education" bucket since
+// student/study products are common and deserve their own candidates.
+function inferAudienceNiche(context: SpecialistJobContext): AudienceNiche {
+  const hay = [
+    context.productArea,
+    context.repoSummary,
+    context.productName,
+    context.websiteSummary,
+    ...context.commitMessages
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    /\b(stud(y|ying|ent|ents)|exam|revis|school|university|6th[\s-]?form|homework|flashcard|gcse|a[\s-]?level)\b/.test(
+      hay
+    )
+  ) {
+    return "education";
+  }
+  if (/\b(solana|wallet|on-?chain|web3|crypto|token|nft|anchor|devnet|escrow|ethereum)\b/.test(hay)) {
+    return "crypto-web3";
+  }
+  if (/\b(game|gameplay|player|tournament|unity|level|quest|multiplayer|arcade)\b/.test(hay)) {
+    return "game";
+  }
+  if (/\b(api|sdk|cli|developer|library|framework|open[\s-]?source|self[\s-]?host|compiler|typescript|rust|golang)\b/.test(hay)) {
+    return "dev-tool";
+  }
+  return "consumer-web";
+}
+
+// Well-known, stable subreddits per niche — the same rigor as
+// launchVenuesFor's canonical venues. Anything more specific than this stays
+// a search query (see audienceResearchSection), never a guessed niche
+// subreddit name Relix cannot verify.
+function candidateSubreddits(niche: AudienceNiche): { name: string; why: string }[] {
+  const byNiche: Record<AudienceNiche, { name: string; why: string }[]> = {
+    "consumer-web": [
+      {
+        name: "r/SideProject",
+        why: "General early-adopter audience for new consumer products."
+      },
+      {
+        name: "r/Entrepreneur",
+        why: "Founders and early users who follow new product launches."
+      }
+    ],
+    "crypto-web3": [
+      {
+        name: "r/solana",
+        why: "Active builder and user audience for Solana-native products."
+      },
+      {
+        name: "r/CryptoCurrency",
+        why: "Large, broad crypto audience — read self-promo rules first."
+      }
+    ],
+    "dev-tool": [
+      {
+        name: "r/SideProject",
+        why: "Builders looking for new tools, feedback, and early users."
+      },
+      { name: "r/programming", why: "Technical audience that reads past the headline." }
+    ],
+    education: [
+      {
+        name: "r/GetStudying",
+        why: "Students actively looking for study systems and accountability tools."
+      },
+      {
+        name: "r/productivity",
+        why: "Broad productivity audience that shares new tools and workflows."
+      }
+    ],
+    game: [
+      {
+        name: "r/IndieGaming",
+        why: "Indie-friendly audience that engages with new builds and clips."
+      },
+      {
+        name: "r/playmygame",
+        why: "Built specifically for founders sharing a playable build for feedback."
+      }
+    ]
+  };
+
+  return byNiche[niche];
+}
+
+// Deterministic, honest audience research: every field comes from the
+// founder's own repo/website/goal context — the same facts every other
+// delivery block uses (see jobFacts in campaign-ai.ts). Deliberately excluded
+// from the AI rewrite pass in generateDelivery (campaign-ai.ts only rewrites
+// `report` and section block text, never this field), so it can never be
+// rewritten into a fabricated claim.
+function audienceResearchSection(
+  agent: SpecialistAgent,
+  context: SpecialistJobContext
+): AudienceResearch {
+  const niche = inferAudienceNiche(context);
+  const cta = ctaOr(context);
+  const focus = goalFocus(context.goal);
+  const change = shorten(context.launchChange, 80);
+  const subreddits = candidateSubreddits(niche);
+
+  const segments: AudienceSegment[] = [
+    {
+      launchAngle: `Lead with what shipped: ${lowerFirst(change)}, and point straight at ${cta}.`,
+      name: `People already searching for ${context.productArea}`,
+      painPoint: `They're actively looking for a better way to handle ${context.productArea} and will judge the first session hard.`,
+      whyTheyCare: `The newest work is built for exactly this — the highest-intent audience for ${focus}.`
+    },
+    {
+      launchAngle: "Frame it as a build-in-public update: what changed, why, and what you learned shipping it.",
+      name: "Founders and builders who follow build-in-public updates",
+      painPoint: "They want proof of real progress, not a feature announcement with no substance behind it.",
+      whyTheyCare: `${context.repository} shipping something real and visible is itself the story for this group.`
+    },
+    {
+      launchAngle: "Skip the pitch — ask a direct question about the pain point, and mention the fix only once someone engages.",
+      name: "Skeptics who've tried similar tools before and churned",
+      painPoint: "Past tools over-promised, so they need evidence, not enthusiasm.",
+      whyTheyCare: "Winning this group over converts into the most durable users if the product genuinely delivers."
+    }
+  ];
+
+  const redditChannels: AudienceChannel[] = subreddits.map((sub) => ({
+    firstAction: `Read ${sub.name}'s self-promo rules, then post once you can answer the community's questions directly.`,
+    name: sub.name,
+    platform: "Reddit",
+    risk: "Self-promotion reads as spam here without a genuine answer to the community's actual problem — lead with the problem, not the product.",
+    suggestedPostAngle: `"${shorten(context.launchChange, 70)}" framed as a lesson learned, not an announcement.`,
+    whyRelevant: sub.why
+  }));
+
+  const nicheSearchChannel: AudienceChannel = {
+    firstAction: "Search this exact query, join 1-2 active results, then post only after engaging with a few real threads.",
+    name: "Candidate channel — search, don't guess",
+    platform: "Reddit",
+    risk: "Relix has no live data on niche subreddits — verify activity and self-promo rules before posting.",
+    searchQueryOrUrl: `site:reddit.com ${context.productArea}`,
+    suggestedPostAngle: `Answer the community's actual question, then mention ${cta} only if it directly answers it.`,
+    whyRelevant: `Small, active communities around ${context.productArea} usually convert better than one large subreddit.`
+  };
+
+  const xChannels: AudienceChannel[] = [
+    {
+      firstAction: "Search this term, reply genuinely to 3-5 recent posts before posting your own.",
+      name: `Search: "${context.productArea}"`,
+      platform: "X",
+      risk: "Cold replies read as spam without genuine engagement first — reply before you post.",
+      searchQueryOrUrl: context.productArea,
+      suggestedPostAngle: "Reply with a specific answer to their exact problem, then mention what shipped only if relevant.",
+      whyRelevant: `Surfaces people actively talking about ${context.productArea} right now — not a guessed audience.`
+    },
+    {
+      firstAction: "Follow 5-10 accounts in this cluster, engage for a day, then post the launch thread.",
+      name: `Audience cluster: builders sharing ${context.productArea} progress`,
+      platform: "X",
+      risk: "This is an inferred cluster, not a verified list — confirm relevance before relying on it.",
+      suggestedPostAngle: `Build-in-public framing: what shipped, why, and the ${focus} it's aimed at.`,
+      whyRelevant: "This audience already follows and reshares genuine shipping updates in this space."
+    }
+  ];
+
+  const channels = [...redditChannels, nicheSearchChannel, ...xChannels].slice(0, 5);
+
+  const objections: AudienceObjection[] = [
+    {
+      founderReply: `${shorten(context.launchChange, 100)}. That's what changed — try it and tell us where it still feels rough.`,
+      objection: "Is this just another app that will be abandoned in a few months?"
+    },
+    {
+      founderReply: `${
+        context.websiteRead
+          ? `The site is explicit about what this does: "${shorten(context.websitePromise, 70)}."`
+          : "It's a focused fix for one real problem, not a rebrand of an old idea."
+      } Start at ${cta} and judge the first session yourself.`,
+      objection: "Why should I switch from what I already use?"
+    },
+    {
+      founderReply: `No invented numbers here — ${
+        context.analyticsConnected ? context.analyticsSummary : "this launch is also the first real read on interest"
+      }. Judge it from the shipped change, not a claim.`,
+      objection: "Are these just made-up growth numbers?"
+    }
+  ];
+
+  const first72HoursPlan = [
+    `Hour 1: post in the channel closest to "${segments[0].name}", using the angle above — reply to every comment within 2 hours.`,
+    "Day 1: search the X term above and reply genuinely to 3-5 real posts before posting your own.",
+    "Day 2: post in the first candidate subreddit; read its rules first and lead with the problem, not the product.",
+    "Day 3: revisit the niche search query, join anything active, and share the follow-up post with early signal — not invented numbers."
+  ];
+
+  return {
+    channels,
+    first72HoursPlan,
+    objections,
+    segments,
+    summary: `${agent.name} mapped who is most likely to care about ${lowerFirst(
+      change
+    )}, where to reach them first, and the objections to expect — grounded in ${context.repository} and your goal of ${focus}. No invented traction, no verified-community claims.`
   };
 }
 
