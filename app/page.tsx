@@ -4380,9 +4380,10 @@ function SpecialistDeliverySection({
               {connectedLabel}. Nothing posts without approval.
             </p>
             <p className="mt-1 text-xs leading-5 text-[#a1a1aa]">
-              Relix will publish this at the scheduled time. Nothing posts
-              without founder approval. Publishing may run a few minutes after
-              the exact time.
+              Relix checks for due posts automatically about once a day.
+              Nothing posts without founder approval. For anything
+              time-sensitive, use Publish now instead of waiting on the
+              automatic check.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
