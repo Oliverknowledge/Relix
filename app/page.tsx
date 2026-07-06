@@ -3081,7 +3081,9 @@ function GuidedResultFlow({
         ) : null}
         {position > 2 ? (
           <CollapsedStep
-            detail={`${campaign.winningBid.deliverables.join(", ")} are ready`}
+            detail={`${campaign.winningBid.deliverables.length} asset${
+              campaign.winningBid.deliverables.length === 1 ? "" : "s"
+            } ready to review`}
             onOpen={() => setActiveStage("delivery")}
             title="Campaign assets delivered"
           />
