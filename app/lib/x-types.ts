@@ -3,7 +3,8 @@ export type XPostStatus =
   | "scheduled"
   | "publishing"
   | "published"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export type XAccount = {
   accessToken: string;
@@ -38,11 +39,16 @@ export type XConnectionStatus = {
 };
 
 export type ScheduledXPost = {
+  // Automatic cron-attempt bookkeeping only — manual "Publish now"/"Retry"
+  // clicks don't read or increment this. Lets the cron route cap retries
+  // without limiting founder-initiated publishing.
+  attempts: number;
   campaignId?: string;
   createdAt: string;
   errorMessage?: string;
   id: string;
   label?: string;
+  lastAttemptAt: string | null;
   publishedAt: string | null;
   repository?: string;
   scheduledFor: string | null;

@@ -2,6 +2,11 @@ import { promises as fs } from "fs";
 import type { NextRequest } from "next/server";
 import { decryptString, encryptString } from "@/app/lib/crypto";
 import { dataDirectory, dataPath } from "@/app/lib/data-path";
+import {
+  persistentKvAvailable,
+  readJsonFromKv,
+  writeJsonToKv
+} from "@/app/lib/kv-json-store";
 import { getXAccountCookie } from "@/app/lib/x-account-cookie";
 import type {
   ScheduledXPost,
@@ -11,8 +16,16 @@ import type {
   XPostStatus
 } from "@/app/lib/x-types";
 
+// Persistence mirrors proof-store.ts / market-event-store.ts: durable Vercel
+// KV / Upstash Redis when configured, local JSON otherwise. This matters more
+// here than elsewhere — the server-side cron publisher (app/api/cron/publish-x)
+// runs with no browser/cookie context, so both the scheduled posts and the
+// encrypted X OAuth tokens needed to publish them must survive across
+// serverless invocations, not just live in /tmp for the current instance.
 const accountsFile = dataPath("x-accounts.json");
 const postsFile = dataPath("x-posts.json");
+const accountsKvKey = "x-accounts";
+const postsKvKey = "x-posts";
 
 export function publicXAccount(account: XAccount): XAccountPublic {
   return {
@@ -298,7 +311,7 @@ export async function cancelScheduledXPost({
   posts[index] = {
     ...posts[index],
     scheduledFor: null,
-    status: "draft",
+    status: "cancelled",
     updatedAt: new Date().toISOString()
   };
 
@@ -340,10 +353,12 @@ export async function prepareApprovedXPost({
   }
 
   const post: ScheduledXPost = {
+    attempts: 0,
     campaignId,
     createdAt: existingIndex >= 0 ? posts[existingIndex].createdAt : now,
     id,
     label,
+    lastAttemptAt: null,
     publishedAt: null,
     repository,
     scheduledFor: null,
@@ -483,6 +498,112 @@ export async function listDueScheduledXPosts(userId: string) {
   );
 }
 
+// Cron-facing: scans across every founder's posts, not just one request's
+// session, since the cron route has no browser/cookie context to scope by.
+export async function listAllDueScheduledXPosts(
+  now: number = Date.now()
+): Promise<ScheduledXPost[]> {
+  const posts = await readPosts();
+
+  return posts.filter(
+    (post) =>
+      post.status === "scheduled" &&
+      post.scheduledFor !== null &&
+      new Date(post.scheduledFor).getTime() <= now
+  );
+}
+
+/**
+ * Moves a due post from "scheduled" to "publishing" and records the attempt.
+ * Re-reads the store and re-checks status immediately before writing, so a
+ * second sequential call for the same post (a re-run cron tick, or a manual
+ * action that already claimed it) sees it's no longer "scheduled" and returns
+ * null instead of claiming it again — this is what keeps a due post from
+ * publishing twice. Concurrent (overlapping, not sequential) invocations
+ * would need a real distributed lock to be fully race-proof; Vercel Cron
+ * doesn't overlap runs of the same schedule, so that's out of scope here.
+ */
+export async function claimDueXPostForCron({
+  maxAttempts,
+  postId
+}: {
+  maxAttempts: number;
+  postId: string;
+}): Promise<ScheduledXPost | null> {
+  const posts = await readPosts();
+  const index = posts.findIndex((post) => post.id === postId);
+
+  if (index === -1 || posts[index].status !== "scheduled") {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+
+  // Defensive only: recordXPostFailure already marks a post "failed" (not
+  // "scheduled") once attempts are exhausted, so a claim should never find a
+  // "scheduled" post already at the cap. Kept as a guard against that
+  // invariant ever being violated.
+  if (posts[index].attempts >= maxAttempts) {
+    posts[index] = {
+      ...posts[index],
+      errorMessage: "Reached the maximum number of publish attempts.",
+      status: "failed",
+      updatedAt: now
+    };
+    await writePosts(posts);
+
+    return null;
+  }
+
+  const claimed: ScheduledXPost = {
+    ...posts[index],
+    attempts: posts[index].attempts + 1,
+    lastAttemptAt: now,
+    status: "publishing",
+    updatedAt: now
+  };
+
+  posts[index] = claimed;
+  await writePosts(posts);
+
+  return claimed;
+}
+
+/**
+ * Called after a claimed post's publish attempt throws. Requeues it as
+ * "scheduled" so the next cron tick retries, while attempts remain under the
+ * cap — or marks it terminally "failed" once exhausted.
+ */
+export async function recordXPostFailure({
+  errorMessage,
+  maxAttempts,
+  postId
+}: {
+  errorMessage: string;
+  maxAttempts: number;
+  postId: string;
+}): Promise<ScheduledXPost | null> {
+  const posts = await readPosts();
+  const index = posts.findIndex((post) => post.id === postId);
+
+  if (index === -1) {
+    return null;
+  }
+
+  const exhausted = posts[index].attempts >= maxAttempts;
+
+  posts[index] = {
+    ...posts[index],
+    errorMessage,
+    status: exhausted ? "failed" : "scheduled",
+    updatedAt: new Date().toISOString()
+  };
+
+  await writePosts(posts);
+
+  return posts[index];
+}
+
 export function decryptedXTokens(account: XAccount) {
   return {
     accessToken: decryptString(account.accessToken),
@@ -521,11 +642,15 @@ async function upsertXPosts({
     }
 
     const scheduledPost: ScheduledXPost = {
+      // Founder is (re)declaring this post via Save drafts/Schedule, so it
+      // gets a fresh attempt budget regardless of any prior cron history.
+      attempts: 0,
       campaignId,
       createdAt:
         existingIndex >= 0 ? next[existingIndex].createdAt : now,
       id,
       label: post.label,
+      lastAttemptAt: null,
       publishedAt: null,
       repository,
       scheduledFor: status === "scheduled" ? post.scheduledFor || now : null,
@@ -552,18 +677,40 @@ async function upsertXPosts({
 }
 
 async function readAccounts(): Promise<XAccount[]> {
+  if (persistentKvAvailable()) {
+    const accounts = await readJsonFromKv<XAccount[]>(accountsKvKey);
+
+    return Array.isArray(accounts) ? accounts : [];
+  }
+
   return readJson(accountsFile);
 }
 
 async function writeAccounts(accounts: XAccount[]) {
+  if (persistentKvAvailable()) {
+    await writeJsonToKv(accountsKvKey, accounts);
+    return;
+  }
+
   await writeJson(accountsFile, accounts);
 }
 
 async function readPosts(): Promise<ScheduledXPost[]> {
+  if (persistentKvAvailable()) {
+    const posts = await readJsonFromKv<ScheduledXPost[]>(postsKvKey);
+
+    return Array.isArray(posts) ? posts : [];
+  }
+
   return readJson(postsFile);
 }
 
 async function writePosts(posts: ScheduledXPost[]) {
+  if (persistentKvAvailable()) {
+    await writeJsonToKv(postsKvKey, posts);
+    return;
+  }
+
   await writeJson(postsFile, posts);
 }
 

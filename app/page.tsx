@@ -2572,6 +2572,13 @@ function SetupSection({
           <h1 className="mt-3 text-4xl font-semibold leading-[1.05] tracking-[-0.035em] text-[#0a0a0a] sm:text-5xl">
             Hire your first AI Growth Employee.
           </h1>
+          <p className="mt-4 max-w-xl text-lg font-medium leading-7 text-[#18181b]">
+            The founder hires one employee. The employee hires the market.
+          </p>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-[#71717a]">
+            CoralOS coordinates the marketplace. Anchor settles on Solana. You
+            hold the wallet.
+          </p>
           <p className="mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
             Connect your product. Set a goal. Relix hires specialist agents,
             manages your growth budget, executes approved campaign actions,
@@ -4306,7 +4313,7 @@ function SpecialistDeliverySection({
       <div className="mt-8 grid gap-8">
         <div className="rounded-[2rem] border hairline bg-white p-6 soft-shadow sm:p-8">
           <p className="max-w-4xl text-lg leading-8 text-[#27272a]">
-            {delivery.report}
+            {renderInlineMarkdown(delivery.report)}
           </p>
           <p className="mt-4 max-w-4xl text-sm leading-6 text-[#71717a]">
             Source: {assets.repository}. {assets.sourceSummary}
@@ -4371,6 +4378,11 @@ function SpecialistDeliverySection({
             <p className="text-sm font-medium text-[#18181b]">Publishing</p>
             <p className="mt-1 text-sm leading-6 text-[#71717a]">
               {connectedLabel}. Nothing posts without approval.
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#a1a1aa]">
+              Relix will publish this at the scheduled time. Nothing posts
+              without founder approval. Publishing may run a few minutes after
+              the exact time.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -4528,6 +4540,20 @@ function AssetGroup({
   );
 }
 
+// Specialist/agent-generated text may come back with **bold** markdown
+// (real Claude-generated CoralOS deliveries do this) while the deterministic
+// fallback specialists never emit it. Render just enough to avoid literal
+// asterisks on screen, without pulling in a full markdown parser.
+function renderInlineMarkdown(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, index) => {
+    if (part.length > 4 && part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+
+    return <span key={index}>{part}</span>;
+  });
+}
+
 function DeliveryAssetCard({
   block,
   copied,
@@ -4573,11 +4599,17 @@ function DeliveryAssetCard({
   const canSendToX = validXPost(text);
   const isTweet = block.kind === "tweet";
   // Notes are long-form community/reference briefs (announcements, rules,
-  // moderator notes), not single X posts — so they never get the 280-char
-  // counter or the Schedule/Publish-to-X buttons. Showing those made a
-  // legitimately long announcement look "broken" with a red -62 and greyed-out
-  // publish. Tweets, replies, and follow-ups remain X-publishable.
-  const isXPublishable = block.kind !== "note";
+  // moderator notes, distribution plans), not single X posts — so they never
+  // get the 280-char counter, a founder-review status pill, or the
+  // Schedule/Publish-to-X buttons. Showing those made a legitimately long
+  // announcement look "broken" with a red -62 and greyed-out publish.
+  const isNote = block.kind === "note";
+  const isXPublishable = !isNote;
+  // Founder Replies are reply templates for when someone actually asks a
+  // question — publishing one standalone (with no parent tweet) would post
+  // out-of-context text, so only tweets and the follow-up post get
+  // Schedule/Publish; replies stay Copy/Edit only.
+  const canScheduleOrPublish = block.kind === "tweet" || block.kind === "follow-up";
   const actionStatus = assetActionStatus({
     copied,
     manualPublished,
@@ -4599,16 +4631,18 @@ function DeliveryAssetCard({
           <p className="mt-1 text-xs text-[#71717a]">{block.section}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#52525b]">
-            {actionStatus}
-          </span>
+          {isNote ? null : (
+            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-[#52525b]">
+              {actionStatus}
+            </span>
+          )}
           {isXPublishable ? (
             <span
               className={`text-xs ${
                 remaining < 0 ? "text-[#b91c1c]" : "text-[#71717a]"
               }`}
             >
-              {remaining}
+              {remaining} chars left
             </span>
           ) : null}
         </div>
@@ -4626,7 +4660,7 @@ function DeliveryAssetCard({
             isTweet ? "bg-white" : "bg-[#f4f4f5]"
           } px-4 py-4 text-sm leading-7 text-[#27272a]`}
         >
-          {text}
+          {renderInlineMarkdown(text)}
         </div>
       )}
 
@@ -4645,7 +4679,7 @@ function DeliveryAssetCard({
         >
           {editing ? "Done" : "Edit"}
         </button>
-        {isXPublishable ? (
+        {canScheduleOrPublish ? (
           <>
             <button
               className="rounded-full bg-white px-3 py-2 text-xs font-medium text-[#27272a] transition hover:bg-[#0a0a0a] hover:text-white disabled:opacity-50"
@@ -4673,7 +4707,7 @@ function DeliveryAssetCard({
               }
               type="button"
             >
-              {publishing ? "Publishing..." : "Publish"}
+              {publishing ? "Publishing..." : "Publish now"}
             </button>
           </>
         ) : null}
@@ -5211,7 +5245,7 @@ function EmployeeWorkSection({
           </div>
         </div>
 
-        {payment ? (
+        {payment && (isPlanningNext || nextPlan) ? (
           <div className="mt-8 border-t hairline pt-8">
             <p className="text-sm font-medium text-[#71717a]">
               Employee&apos;s next move
@@ -5258,11 +5292,7 @@ function EmployeeWorkSection({
                   </p>
                 )}
               </div>
-            ) : (
-              <p className="mt-3 text-sm leading-6 text-[#52525b]">
-                {recommendation || work.nextRecommendation}
-              </p>
-            )}
+            ) : null}
           </div>
         ) : null}
 
@@ -5368,7 +5398,7 @@ function ScheduledXPostRow({
         )}
       </div>
       <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-[#27272a]">
-        {post.text}
+        {renderInlineMarkdown(post.text)}
       </p>
       {post.errorMessage ? (
         <p className="mt-3 text-xs leading-5 text-[#b91c1c]">
@@ -5665,11 +5695,15 @@ function assetActionStatus({
   xPost?: ScheduledXPost;
 }) {
   if (manualPublished || xPost?.status === "published") {
-    return "Published";
+    return "Published to X";
   }
 
   if (xPost?.status === "failed") {
-    return "Failed";
+    return "Failed to publish";
+  }
+
+  if (xPost?.status === "cancelled") {
+    return "Ready for founder review";
   }
 
   if (xPost?.status === "publishing") {
@@ -5688,7 +5722,7 @@ function assetActionStatus({
     return "Drafted";
   }
 
-  return "Waiting approval";
+  return "Ready for founder review";
 }
 
 function campaignBudget(campaign: CampaignPlan, payment: PaymentResult | null) {
@@ -6562,15 +6596,19 @@ function xStatusLabel(status: ScheduledXPost["status"]) {
   }
 
   if (status === "published") {
-    return "Published";
+    return "Published to X";
   }
 
   if (status === "failed") {
-    return "Failed";
+    return "Failed to publish";
   }
 
   if (status === "scheduled") {
     return "Scheduled";
+  }
+
+  if (status === "cancelled") {
+    return "Cancelled";
   }
 
   return "Draft";

@@ -11,6 +11,7 @@ import {
 import { formatSol } from "@/app/lib/campaign";
 import { CapabilityChip } from "@/app/components/capability-chip";
 import {
+  isBuiltInSpecialist,
   registerPublishedSpecialists,
   seedReputationFor,
   specialistRegistry,
@@ -115,6 +116,10 @@ export default function MarketplacePage() {
         <p className="mt-6 max-w-xl text-base leading-7 text-[#52525b] sm:text-lg">
           Independent specialist agents compete for paid growth work.
         </p>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-[#71717a]">
+          Built-in specialists run as CoralOS agents. Published specialists
+          compete through Relix’s marketplace adapter.
+        </p>
       </header>
 
       <div className="mt-12 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -172,6 +177,7 @@ function MarketplaceAgentCard({
   agent: SpecialistAgent;
   reputation: SpecialistReputation;
 }) {
+  const builtIn = isBuiltInSpecialist(agent.id);
   const recentClients = [
     ...reputation.recentJobs.map((job) => job.client),
     ...agent.recentClients
@@ -190,9 +196,25 @@ function MarketplaceAgentCard({
             {agent.avatar}
           </span>
           <div className="min-w-0">
-            <h2 className="text-2xl font-semibold tracking-[-0.03em] text-[#0a0a0a]">
-              {agent.name}
-            </h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-2xl font-semibold tracking-[-0.03em] text-[#0a0a0a]">
+                {agent.name}
+              </h2>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                  builtIn
+                    ? "bg-[#0a0a0a] text-white"
+                    : "bg-white text-[#52525b]"
+                }`}
+              >
+                {builtIn ? "CoralOS seller agent" : "Marketplace specialist"}
+              </span>
+              {builtIn ? (
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-[#a1a1aa]">
+                  Sample marketplace data
+                </span>
+              ) : null}
+            </div>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-[#52525b]">
               {agent.description}
             </p>

@@ -5,6 +5,7 @@ import { CapabilityChip } from "@/app/components/capability-chip";
 import { formatSol } from "@/app/lib/campaign";
 import { specialistCapabilityOptions } from "@/app/lib/specialist-capabilities";
 import {
+  isBuiltInSpecialist,
   specialistRegistry,
   type SpecialistAgent,
   type SpecialistReputation
@@ -360,11 +361,16 @@ export function AgentProfileModal({
                 {agent.name}
               </h3>
               <p className="mt-1 text-xs text-[#71717a]">
-                Independent seller agent · v{agent.version}
+                {isBuiltInSpecialist(agent.id)
+                  ? "CoralOS seller agent"
+                  : "Marketplace specialist"}{" "}
+                · v{agent.version}
               </p>
-              <p className="mt-1 text-[11px] text-[#a1a1aa]">
-                Sample marketplace listing · illustrative track record
-              </p>
+              {isBuiltInSpecialist(agent.id) ? (
+                <p className="mt-1 text-[11px] text-[#a1a1aa]">
+                  Sample marketplace listing · illustrative track record
+                </p>
+              ) : null}
             </div>
           </div>
           <button

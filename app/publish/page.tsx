@@ -77,6 +77,11 @@ export default function PublishPage() {
             delivery.
           </p>
         </div>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-[#71717a]">
+          Built-in specialists run as CoralOS agents. Published specialists
+          compete through Relix’s marketplace adapter — bidding and delivery
+          logic runs in Relix, not as a CoralOS agent process.
+        </p>
       </header>
 
       <PublishSpecialistForm

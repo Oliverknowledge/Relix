@@ -134,6 +134,11 @@ export function PrizePayoutCard({
             wallet directly. In this demo the prize lands in your connected
             wallet so you can watch the balance rise.
           </p>
+          <p className="mt-3 max-w-2xl rounded-2xl bg-[#f4f4f5] px-4 py-3 text-xs leading-5 text-[#52525b]">
+            Separate from founder escrow: a small pre-funded agent treasury can
+            pay capped prizes automatically. It never touches the founder’s
+            locked escrow, which only the founder can release.
+          </p>
         </div>
         <span className="whitespace-nowrap rounded-full bg-[#f4f4f5] px-3 py-1 text-xs font-medium text-[#52525b]">
           {state.paidTotalSol} / {PRIZE_TOTAL_CAP_SOL} SOL paid
