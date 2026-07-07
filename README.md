@@ -266,8 +266,8 @@ The escrow program (`programs/relix_escrow`, Rust/Anchor) is the only thing in R
 - **Program id**: `8dBQUA3ja6Z82oZ5C4qEmTg5CJ3jRtvnMb48h4vL1jgK` (devnet), controlled via `NEXT_PUBLIC_RELIX_ESCROW_PROGRAM_ID`.
 - **Instructions**: `initialize_escrow`, `release_escrow`, `refund_escrow` — all three require the founder's Phantom signature.
 - **Vault**: a PDA derived from the seed `relix_vault` (see `programs/relix_escrow/src/constants.rs`) — funds sit in an account no private key controls.
-- **Fee cap**: the program enforces `MAX_FEE_BPS = 3000` (30%) server-side, regardless of what the client requests; Relix's own UI default is `NEXT_PUBLIC_RELIX_PLATFORM_FEE_BPS=1000` (10%).
-- **Flow**: `initialize_escrow` locks the agreed price into the vault → (delivery happens off-chain) → the founder either calls `release_escrow` (splits the vault between the specialist owner wallet and the Relix treasury wallet in one transaction) or, after the deadline, `refund_escrow` (returns the full locked amount to the founder). `release_escrow` cannot run twice, and `refund_escrow` cannot run after a release (both enforced on-chain and covered by the Anchor test suite).
+- **Platform fee (treasury cut of every job)**: every job pays the Relix treasury a percentage of its own escrowed amount — there is no separate fee transaction or extra charge to the founder. The fee is set in basis points (`NEXT_PUBLIC_RELIX_PLATFORM_FEE_BPS`, default `1000` = 10%) and is computed **once**, from the full locked amount, inside `initialize_escrow` (`calculate_fee` in `programs/relix_escrow/src/instructions/initialize_escrow.rs`) — the result is stored on the escrow account itself (`fee_bps`, `treasury_fee_lamports`), so a job's fee is fixed the moment funds lock and is never affected by an env var changing later. The Anchor program enforces `MAX_FEE_BPS = 3000` (30%) on-chain regardless of what the client requests. On `release_escrow`, that stored `treasury_fee_lamports` amount is paid to the Relix treasury wallet in the exact same transaction that pays the specialist — one founder signature, one settlement, two recipients. If the job is refunded instead, no fee is ever taken: the full locked amount returns to the founder.
+- **Flow**: `initialize_escrow` locks the agreed price (specialist amount + treasury fee) into the vault → (delivery happens off-chain) → the founder either calls `release_escrow` (splits the vault between the specialist owner wallet and the Relix treasury wallet in one transaction) or, after the deadline, `refund_escrow` (returns the full locked amount to the founder, fee included). `release_escrow` cannot run twice, and `refund_escrow` cannot run after a release (both enforced on-chain and covered by the Anchor test suite).
 - **Native SOL only** for this hackathon MVP — one founder, one specialist, one treasury, no token/SPL escrow, one job per escrow account.
 
 See [Escrow Setup (Devnet)](#escrow-setup-devnet) below for wallet setup, and [Testing & Verification](#testing--verification) for running the Anchor test suite.
@@ -347,9 +347,12 @@ interface SpecialistAgentAdapter {
 
 | Specialist | Capabilities | Base price | Delivery |
 | --- | --- | --- | --- |
-| **Tournament Specialist** | `tournament-design`, `prize-payouts` ⛓, `launch-threads`, `urgency-copy` | 0.75 SOL | ~5 days |
-| **Referral Specialist** | `invite-loops`, `reward-ladders` ⛓ | 0.42 SOL | ~3 days |
-| **Community Launch Specialist** | `community-briefs`, `founder-replies` | 0.35 SOL | ~4 days |
+| **Tournament Specialist** | `tournament-design`, `prize-payouts` ⛓, `launch-threads`, `urgency-copy`, `distribution-plan` | 0.75 SOL | ~5 days |
+| **Referral Specialist** | `invite-loops`, `reward-ladders` ⛓, `distribution-plan`, `audience-research` | 0.42 SOL | ~3 days |
+| **Community Launch Specialist** | `community-briefs`, `founder-replies`, `distribution-plan` | 0.35 SOL | ~4 days |
+
+- **`distribution-plan`**: a concrete where-to-post plan — the founder's own channels, canonical launch venues matched to the product category, a search strategy for niche communities, and a 72-hour posting sequence. Advice only (Copy/Edit), never a postable asset.
+- **`audience-research`**: identifies high-intent audience segments, candidate Reddit/X channels and search queries, likely objections with founder-ready replies, and a first-72-hours plan — deterministically derived from the founder's own repo/website/goal context, never invented traffic or "verified community" claims. Rendered as its own advice-only card in the delivery view (no Publish/Schedule), excluded from the AI rewrite pass in `campaign-ai.ts` so it can never be hallucinated into a fake-traction claim. Any specialist (built-in or published) with this capability gets it, not just Referral Specialist.
 
 Example, matching `app/lib/specialist-agents.ts`:
 
@@ -419,7 +422,14 @@ The UI only shows connection state and property selection. Metrics are used in e
 7. Choose `Save drafts`, `Approve schedule`, or `Approve and publish now`.
 8. Published posts show the X post URL.
 
-Scheduled publishing is processed when `/api/x/posts?publishDue=true` is called. The UI polls this while scheduled posts exist. In production, call the same endpoint from a cron job. X access tokens are refreshed with `offline.access` (`app/api/x/refresh-token`) and encrypted before storage (`app/lib/crypto.ts`).
+**Scheduled publishing runs server-side, with no browser required.** `app/api/cron/publish-x` is a real Vercel Cron job (configured in `vercel.json`) that finds every founder's due (`status: "scheduled"`, `scheduledFor <= now`) posts and publishes them directly — the founder's tab does not need to be open. It is idempotent: each due post is atomically claimed (`scheduled` → `publishing`) before it's sent to X, so a retried or overlapping cron tick cannot publish the same post twice. Failures requeue automatically up to `MAX_ATTEMPTS = 3` (with `attempts`/`lastAttemptAt`/`errorMessage` recorded on the post), then the post is marked terminally `failed` with a retry action in the UI. Because the cron runs with no request/cookie context, both the scheduled posts and the encrypted X OAuth tokens needed to publish them are persisted through the same Vercel KV / Upstash adapter as published specialists (`app/lib/kv-json-store.ts`) — not the ephemeral local-JSON/`/tmp` fallback — so a cold serverless instance can still find and publish them.
+
+- **Auth**: the route requires `CRON_SECRET` — Vercel sends it as `Authorization: Bearer <CRON_SECRET>` when the env var is set; the same secret also works as a `?secret=` query param so you can trigger it manually (e.g. right before recording a demo) instead of waiting for the schedule.
+- **Dry run**: `GET /api/cron/publish-x?secret=<CRON_SECRET>&dryRun=1` reports what would publish without posting anything.
+- **Cadence honesty**: Vercel's **Hobby** plan only allows cron jobs to run **once per day** (`vercel.json` uses `0 9 * * *`); a more frequent schedule fails deployment outright on that plan. The UI says so plainly: *"Relix checks for due posts automatically about once a day... for anything time-sensitive, use Publish now."* Vercel Pro allows once-per-minute cron if tighter timing is needed later.
+- The older opportunistic path still exists as a bonus, not a replacement: `/api/x/posts?publishDue=true` also publishes any due posts for the currently-signed-in founder, and the UI calls it when the tab happens to be open — but the cron job above is what makes "Schedule" true even when nobody is watching.
+
+X access tokens are refreshed with `offline.access` (`app/api/x/refresh-token`) and encrypted before storage (`app/lib/crypto.ts`).
 
 **X 401 or missing write access:** if publishing returns `401` or Relix says X did not grant `tweet.write`, open the X Developer Portal app settings and confirm App permissions are `Read and write`, OAuth 2.0 is enabled for a Web App / confidential client, the callback URL is exactly `https://your-domain/api/x/callback`, and the requested scopes include `tweet.read users.read tweet.write offline.access`. After changing X permissions, disconnect X in Relix and connect it again — existing tokens do not gain new scopes automatically.
 
@@ -444,6 +454,12 @@ GOOGLE_REDIRECT_URI=http://localhost:3000/api/google/callback
 X_CLIENT_ID=your_x_oauth_2_client_id
 X_CLIENT_SECRET=your_x_oauth_2_client_secret
 X_REDIRECT_URI=http://localhost:3000/api/x/callback
+
+# Authorizes the server-side scheduled X publisher (app/api/cron/publish-x).
+# Vercel sends this as "Authorization: Bearer <value>" when calling the cron
+# job (see vercel.json); the same value also works as a "?secret=" query
+# param so you can trigger a publish run manually to test before recording.
+CRON_SECRET=replace_with_a_long_random_secret
 
 RELIX_TOKEN_ENCRYPTION_KEY=replace_with_a_long_random_secret
 
@@ -555,23 +571,25 @@ Full runbook, env var reference, and a Railway deployment checklist: [docs/HOSTE
 
 Local development writes JSON files to `data/`. Vercel writes fallback JSON files to `/tmp/relix-data` because the deployed app bundle is read-only.
 
-Published specialists use Vercel KV / Upstash Redis REST when these environment variables are present:
+Published specialists, connected X accounts (`x-accounts.json`), and scheduled X posts (`x-posts.json`) all use the same Vercel KV / Upstash Redis REST adapter (`app/lib/kv-json-store.ts`) when these environment variables are present:
 
 ```bash
 KV_REST_API_URL=...
 KV_REST_API_TOKEN=...
 ```
 
-This keeps `/publish` and `/marketplace` durable across refreshes, serverless function instances, and redeploys. The same code also accepts Upstash's native variable names:
+This keeps `/publish`, `/marketplace`, and the connected X account/scheduled posts durable across refreshes, serverless function instances, and redeploys — which matters most for the [server-side scheduled publisher](#x-twitter) (`app/api/cron/publish-x`), since a cron invocation has no browser/cookie context and must be able to find the founder's account and due posts on its own. The same code also accepts Upstash's native variable names:
 
 ```bash
 UPSTASH_REDIS_REST_URL=...
 UPSTASH_REDIS_REST_TOKEN=...
 ```
 
+Without KV configured, all three fall back to local JSON files (`data/` locally, `/tmp/relix-data` on Vercel) — fine for the app's own UI, but the cron publisher then only reliably works within a single warm serverless instance, not across cold starts. Configure KV before relying on scheduled publishing in production.
+
 OAuth is not required for specialist publishing in the hackathon build. Publishing is intentionally open and lightweight. Add auth later when you need owner accounts, edit/delete permissions, private agents, or paid marketplace onboarding.
 
-On Vercel, the encrypted connected X account is also stored in chunked HTTP-only cookies. This keeps OAuth state available across serverless cold starts for scheduling and publishing. The raw X tokens are never exposed to client JavaScript.
+On Vercel, the encrypted connected X account is also stored in chunked HTTP-only cookies as an additional fallback for the founder's own browser session. This keeps OAuth state available across serverless cold starts for scheduling and publishing from the UI. The raw X tokens are never exposed to client JavaScript, and are never included in the proof receipt, logs, or any API response.
 
 These paths are ignored by git (see `.gitignore`):
 
@@ -592,7 +610,7 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 
 `XAccount` stores: `userId`, `xUserId`, `username`, encrypted `accessToken`, encrypted `refreshToken`, `tokenExpiry`, `scopes`, `connectedAt`.
 
-`ScheduledXPost` stores: `userId`, `xAccountId`, `text`, `status` (`draft` / `scheduled` / `publishing` / `published` / `failed`), `scheduledFor`, `publishedAt`, `xPostId`, `xPostUrl`, `errorMessage`, `createdAt`, `updatedAt`.
+`ScheduledXPost` stores: `userId`, `xAccountId`, `text`, `status` (`draft` / `scheduled` / `publishing` / `published` / `failed` / `cancelled`), `scheduledFor`, `publishedAt`, `xPostId`, `xPostUrl`, `errorMessage`, `attempts`, `lastAttemptAt`, `createdAt`, `updatedAt`. `attempts`/`lastAttemptAt` are written only by the cron publisher (see [X (Twitter)](#x-twitter)) — manual "Publish now"/"Retry" clicks never read or increment them, so founder-initiated publishing stays unlimited.
 
 ## API Routes
 
@@ -616,6 +634,7 @@ The Vercel `/tmp` directory is writable but ephemeral. It prevents serverless fi
 
 **X (Twitter)**
 - `GET /api/x/connect`, `GET /api/x/callback`, `GET /api/x/status`, `POST /api/x/disconnect`, `POST /api/x/post`, `POST /api/x/schedule`, `GET /api/x/posts`, `POST /api/x/refresh-token`.
+- `GET /api/cron/publish-x` — server-side scheduled publisher (see [X (Twitter)](#x-twitter)); `?dryRun=1` previews without posting, `?secret=<CRON_SECRET>` authorizes a manual run.
 
 **Website analysis**
 - `POST /api/website/analyse`.
@@ -744,8 +763,10 @@ A judge can follow the whole founder-to-specialist settlement path from the UI a
 - X OAuth 2.0 + PKCE.
 - X access token refresh with `offline.access`.
 - Publishing through `POST /2/tweets` after explicit approval.
-- Durable published specialist storage when Vercel KV / Upstash Redis REST is configured.
+- A real server-side scheduled publisher (`app/api/cron/publish-x`, driven by Vercel Cron per `vercel.json`) that publishes due X posts with no browser open, gated by `CRON_SECRET`, idempotent per post, and capped at 3 retry attempts before a post is marked terminally failed.
+- Durable published specialist storage, and durable scheduled-post/X-account storage for the cron publisher above, when Vercel KV / Upstash Redis REST is configured.
 - JSON-backed local records for X accounts, X posts, activity, memory, and internal state.
+- Deterministic **audience research** (candidate Reddit/X channels, audience segments, objections, a 72-hour plan) for any specialist with the `audience-research` capability — grounded only in the founder's own repo/website/goal context, excluded from the AI rewrite pass so it can never be turned into an invented traction claim.
 
 ## What Is Simulated
 
